@@ -335,9 +335,9 @@
         return '<div class="list-line" data-night="' + night.date + '" style="flex-wrap:wrap; gap:8px">' +
           '<span class="mono" style="min-width:56px">' + DOW[dowIndex(night.date)] + " " + night.date.slice(5) + "</span>" +
           '<span class="row" style="gap:6px">' +
-            '<input type="time" value="' + hhmm(night.sleepTime) + '" data-field="sleepTime" style="width:118px">' +
+            '<input type="time" value="' + hhmm(night.sleepTime) + '" data-field="sleepTime" style="width:128px">' +
             '<span class="muted">→</span>' +
-            '<input type="time" value="' + hhmm(night.wakeTime) + '" data-field="wakeTime" style="width:118px">' +
+            '<input type="time" value="' + hhmm(night.wakeTime) + '" data-field="wakeTime" style="width:128px">' +
           "</span>" +
           '<span class="mono" style="min-width:76px; text-align:right">' + fmtShort(night.duration) + "</span>" +
           '<span class="stars">' + [1, 2, 3, 4, 5].map(function (n) {
@@ -561,6 +561,21 @@
         new Notification("Час лягати", { body: text, icon: "icons/icon-192.png", tag: "hub-bedtime" });
       });
     }).catch(function () { /* сповіщення — не привід ламати сторінку */ });
+  }
+
+  // ── Ніякого масштабування ─────────────────────────────────────────────
+
+  function lockZoom() {
+    // iOS Safari ігнорує user-scalable, тож щипок доводиться глушити вручну.
+    ["gesturestart", "gesturechange", "gestureend"].forEach(function (name) {
+      document.addEventListener(name, function (event) { event.preventDefault(); }, { passive: false });
+    });
+    // Ctrl+колесо і щипок на тачпаді комп'ютера.
+    document.addEventListener("wheel", function (event) {
+      if (event.ctrlKey) event.preventDefault();
+    }, { passive: false });
+    // Подвійний клік не має нічого виділяти чи наближати.
+    document.addEventListener("dblclick", function (event) { event.preventDefault(); }, { passive: false });
   }
 
   // ── Встановлення на телефон ───────────────────────────────────────────
@@ -830,6 +845,7 @@
   function init() {
     $("#todayLabel").textContent = humanDate(Hub.today(), { weekday: "long", day: "numeric", month: "long" });
     renderChips($("#newTaskDays"), state.newTaskDays);
+    lockZoom();
     bind();
     // Просимо захист сховища одразу: телефон не має права стерти щоденник сам.
     Hub.persist().catch(function () { /* не всі браузери це вміють */ });

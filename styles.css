@@ -40,12 +40,26 @@
 
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
+html{
+  /* Жодного масштабування: ні щипком, ні подвійним дотиком. */
+  touch-action:manipulation;
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+}
 body{
   background:var(--bg);
   color:var(--text);
   font:15px/1.45 "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing:antialiased;
   padding-bottom:48px;
+  touch-action:manipulation;
+  overscroll-behavior-y:contain;        /* і без «потягнути, щоб оновити» */
+  -webkit-tap-highlight-color:transparent;
+}
+/* Інтерфейс не виділяється як текст — довгий дотик не викликає лупу й меню. */
+button, .tabs, .task .meta, .big, .pill, .heat, .stars, .card h2, .dialog-sub{
+  -webkit-user-select:none;
+  user-select:none;
 }
 h1,h2,h3{font-family:"Manrope", system-ui, sans-serif; margin:0; font-weight:700; letter-spacing:-.01em}
 button, input, select, textarea{font:inherit; color:inherit}
@@ -119,6 +133,8 @@ section[hidden]{display:none}
 input[type="text"], input[type="time"], input[type="number"], select, textarea{
   background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
   padding:8px 10px; width:100%; outline:none;
+  /* 16px — межа, нижче якої iOS сам наближає екран при фокусі в полі. */
+  font-size:16px;
 }
 input:focus, select:focus, textarea:focus{border-color:var(--accent); background:var(--panel)}
 label.field{display:block; font-size:12px; color:var(--text-faint); margin-bottom:4px}
