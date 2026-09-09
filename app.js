@@ -570,6 +570,11 @@
     ["gesturestart", "gesturechange", "gestureend"].forEach(function (name) {
       document.addEventListener(name, function (event) { event.preventDefault(); }, { passive: false });
     });
+    // На iPhone gesture-події спрацьовують не завжди — ловимо сам дотик двома
+    // пальцями. Одним пальцем сторінка гортається як зазвичай.
+    document.addEventListener("touchmove", function (event) {
+      if (event.touches.length > 1) event.preventDefault();
+    }, { passive: false, capture: true });
     // Ctrl+колесо і щипок на тачпаді комп'ютера.
     document.addEventListener("wheel", function (event) {
       if (event.ctrlKey) event.preventDefault();

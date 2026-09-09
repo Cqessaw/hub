@@ -41,8 +41,9 @@
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 html{
-  /* Жодного масштабування: ні щипком, ні подвійним дотиком. */
-  touch-action:manipulation;
+  /* pan-x pan-y дозволяє гортати, але забирає і щипок, і подвійний дотик.
+     (manipulation прибирає лише подвійний — щипок лишався б живий.) */
+  touch-action:pan-x pan-y;
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
 }
@@ -52,7 +53,7 @@ body{
   font:15px/1.45 "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing:antialiased;
   padding-bottom:48px;
-  touch-action:manipulation;
+  touch-action:pan-x pan-y;
   overscroll-behavior-y:contain;        /* і без «потягнути, щоб оновити» */
   -webkit-tap-highlight-color:transparent;
 }
@@ -65,11 +66,17 @@ h1,h2,h3{font-family:"Manrope", system-ui, sans-serif; margin:0; font-weight:700
 button, input, select, textarea{font:inherit; color:inherit}
 a{color:var(--accent); text-decoration:none}
 
-.wrap{max-width:1060px; margin:0 auto; padding:0 16px}
+.wrap{
+  max-width:1060px; margin:0 auto;
+  padding-left:max(16px, env(safe-area-inset-left));
+  padding-right:max(16px, env(safe-area-inset-right));
+}
 
 /* ── Шапка ─────────────────────────────────────────────────────────────── */
 header.top{
   position:sticky; top:0; z-index:20;
+  /* Острівець і «чубчик» з'їдають верх екрана — відступаємо на них плюс трохи повітря. */
+  padding-top:calc(env(safe-area-inset-top) + 6px);
   background:color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter:blur(10px);
   border-bottom:1px solid var(--line);
