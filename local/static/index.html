@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Хаб</title>
+<script>
+// Тему ставимо до першого малювання, щоб не блимало світлим на темному.
+(function(){
+  var t;
+  try { t = localStorage.getItem("hub_theme"); } catch(e){}
+  if (t !== "latte" && t !== "mocha"){
+    t = (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) ? "latte" : "mocha";
+  }
+  document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div class="brand">
+        <h1>Хаб</h1>
+        <span class="today" id="todayLabel"></span>
+      </div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="settingsBtn" title="Налаштування">⚙</button>
+      <button class="icon-btn" id="themeBtn" title="Тема">◐</button>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" aria-selected="true">Огляд</button>
+      <button data-tab="tasks" aria-selected="false">Задачі</button>
+      <button data-tab="sleep" aria-selected="false">Сон</button>
+      <button data-tab="food" aria-selected="false">Їжа</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ── Огляд ─────────────────────────────────────────────────────────── -->
+  <section id="tab-overview">
+    <div id="overviewBanners"></div>
+    <div class="grid">
+      <div class="card">
+        <h2>Сьогодні</h2>
+        <div class="row" style="justify-content:space-between; align-items:flex-end">
+          <div class="big" id="ovTasksCount">—</div>
+          <div class="muted" id="ovTasksHint"></div>
+        </div>
+        <div id="ovTaskList" style="margin-top:12px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Активні стріки</h2>
+        <div id="ovStreaks"></div>
+      </div>
+
+      <div class="card span-2">
+        <h2>Сон за тиждень</h2>
+        <div class="row" style="justify-content:space-between; align-items:flex-end; margin-bottom:10px">
+          <div><span class="big" id="ovSleepAvg">—</span></div>
+          <div class="muted" id="ovSleepHint"></div>
+        </div>
+        <div id="ovSleepChart"></div>
+      </div>
+
+      <div class="card">
+        <h2>Без солодкого</h2>
+        <div class="row" style="justify-content:space-between; align-items:flex-end">
+          <div class="big" id="ovSweetStreak">—<small>днів</small></div>
+          <div class="muted" id="ovSweetHint"></div>
+        </div>
+        <div class="thumbs" id="ovFoodThumbs" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Задачі ────────────────────────────────────────────────────────── -->
+  <section id="tab-tasks" hidden>
+    <div class="card" style="margin-bottom:14px">
+      <div class="row" style="justify-content:space-between; margin-bottom:12px">
+        <button class="btn ghost" id="dayPrev">←</button>
+        <div style="text-align:center">
+          <div style="font-weight:700" id="taskDayLabel">—</div>
+          <button class="btn ghost muted" id="dayToday" style="padding:2px 8px; font-size:12px">сьогодні</button>
+        </div>
+        <button class="btn ghost" id="dayNext">→</button>
+      </div>
+      <div id="taskList"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h2>Нова задача</h2>
+      <div class="wrap-row" style="align-items:flex-end">
+        <div style="flex:2; min-width:200px">
+          <label class="field" for="newTaskName">Назва</label>
+          <input type="text" id="newTaskName" placeholder="Наприклад: зал">
+        </div>
+        <div style="flex:1; min-width:150px">
+          <label class="field" for="newTaskRule">Повторення</label>
+          <select id="newTaskRule">
+            <option value="once">Одноразова</option>
+            <option value="daily">Щодня</option>
+            <option value="days">Дні тижня</option>
+          </select>
+        </div>
+        <button class="btn primary" id="addTask">Додати</button>
+      </div>
+      <div id="newTaskDays" class="daychips" style="margin-top:10px" hidden></div>
+    </div>
+
+    <div class="card">
+      <h2>Історія</h2>
+      <div class="heat" id="taskHeat"></div>
+      <div class="heat-legend">
+        <span>менше</span>
+        <i style="width:13px;height:13px;border-radius:4px;display:inline-block" data-level="0"></i>
+        <i style="width:13px;height:13px;border-radius:4px;display:inline-block" data-level="1"></i>
+        <i style="width:13px;height:13px;border-radius:4px;display:inline-block" data-level="2"></i>
+        <i style="width:13px;height:13px;border-radius:4px;display:inline-block" data-level="3"></i>
+        <span>більше</span>
+      </div>
+      <div id="taskLog" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- ── Сон ───────────────────────────────────────────────────────────── -->
+  <section id="tab-sleep" hidden>
+    <div id="sleepBanners"></div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="wrap-row" style="gap:10px">
+        <button class="btn big-action" id="btnBed">🌙 Ліг спати<span class="sub">записати поточний час</span></button>
+        <button class="btn big-action" id="btnWake">☀️ Прокинувся<span class="sub">і порахувати тривалість</span></button>
+      </div>
+      <div class="muted" id="sleepTonight" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="row" style="justify-content:space-between; margin-bottom:12px">
+        <h2 style="margin:0">Тривалість сну</h2>
+        <div class="wrap-row">
+          <button class="btn ghost" data-range="14" aria-pressed="true">2 тижні</button>
+          <button class="btn ghost" data-range="30" aria-pressed="false">Місяць</button>
+          <button class="btn ghost" data-range="weeks" aria-pressed="false">По тижнях</button>
+        </div>
+      </div>
+      <div id="sleepChart"></div>
+      <div class="wrap-row muted" id="sleepStats" style="margin-top:10px; gap:16px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Останні ночі</h2>
+      <div id="sleepTable"></div>
+    </div>
+  </section>
+
+  <!-- ── Їжа ───────────────────────────────────────────────────────────── -->
+  <section id="tab-food" hidden>
+    <div class="grid" style="margin-bottom:14px">
+      <div class="card">
+        <h2>Без солодкого</h2>
+        <div class="big" id="foodStreak">—<small>днів</small></div>
+        <div class="muted" id="foodStreakHint" style="margin-top:6px"></div>
+      </div>
+      <div class="card">
+        <h2>Цей тиждень</h2>
+        <div class="big" id="foodWeekSweets">—<small>разів солодке</small></div>
+        <div class="muted" id="foodWeekHint" style="margin-top:6px"></div>
+      </div>
+      <div class="card span-2">
+        <h2>Солодке по тижнях</h2>
+        <div id="foodChart"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="wrap-row" style="justify-content:space-between">
+        <div class="muted" id="foodSource"></div>
+        <div>
+          <input type="file" id="foodFile" accept="image/*" hidden>
+          <button class="btn" id="foodUpload">Додати фото з комп'ютера</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="foodFeed"></div>
+  </section>
+
+</main>
+
+<dialog id="settingsDialog">
+  <h2 style="margin-bottom:14px">Налаштування</h2>
+  <div style="display:grid; gap:12px">
+    <div>
+      <label class="field" for="setGoal">Бажана норма сну (годин)</label>
+      <input type="number" id="setGoal" min="4" max="12" step="0.25">
+    </div>
+    <div>
+      <label class="field" for="setBedtime">Орієнтовний час лягати</label>
+      <input type="time" id="setBedtime">
+    </div>
+    <div>
+      <label class="field" for="setWake">Ранкове нагадування оцінити сон (порожньо = вимкнено)</label>
+      <input type="time" id="setWake">
+    </div>
+    <div>
+      <label class="field" for="setWarn">Скільки останніх ночей дивитись у попередженні</label>
+      <input type="number" id="setWarn" min="2" max="14">
+    </div>
+    <div class="muted" id="setStatus"></div>
+    <div>
+      <a class="btn" href="/api/backup" download="hub-backup.json">Копія для телефона</a>
+      <div class="muted" style="margin-top:6px">
+        JSON у форматі, який читає веб-версія: у ній «Відновити з копії».
+      </div>
+    </div>
+  </div>
+  <div class="wrap-row" style="justify-content:flex-end; margin-top:16px">
+    <button class="btn ghost" id="setClose">Закрити</button>
+    <button class="btn primary" id="setSave">Зберегти</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

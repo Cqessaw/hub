@@ -1,0 +1,268 @@
+/* Дві теми — ті самі Latte і Mocha, що у «Щоденнику», щоб хаб виглядав рідним. */
+:root, :root[data-theme="latte"]{
+  --bg:#F4F1EB;
+  --panel:#FFFFFF;
+  --panel-2:#FBF9F5;
+  --line:#E0D7C6;
+  --line-strong:#CBC0AB;
+  --text:#3C3A35;
+  --text-soft:#6D685F;
+  --text-faint:#9B958A;
+  --accent:#3B6FD4;
+  --accent-ink:#2A56AE;
+  --accent-soft:rgba(59,111,212,.10);
+  --on-accent:#FFFFFF;
+  --green:#41924F;  --green-soft:rgba(65,146,79,.13);
+  --amber:#BE8210;  --amber-soft:rgba(190,130,16,.15);
+  --red:#C4453C;    --red-soft:rgba(196,69,60,.12);
+  --violet:#7C56C6; --violet-soft:rgba(124,86,198,.12);
+  --shadow:0 1px 2px rgba(60,58,53,.05), 0 6px 18px -10px rgba(60,58,53,.20);
+}
+:root[data-theme="mocha"]{
+  --bg:#181825;
+  --panel:#1E1E2E;
+  --panel-2:#262637;
+  --line:#313244;
+  --line-strong:#43455A;
+  --text:#CDD6F4;
+  --text-soft:#A6ADC8;
+  --text-faint:#7F849C;
+  --accent:#89B4FA;
+  --accent-ink:#A9C8FF;
+  --accent-soft:rgba(137,180,250,.14);
+  --on-accent:#12121C;
+  --green:#A6E3A1;  --green-soft:rgba(166,227,161,.14);
+  --amber:#F9E2AF;  --amber-soft:rgba(249,226,175,.14);
+  --red:#F38BA8;    --red-soft:rgba(243,139,168,.14);
+  --violet:#CBA6F7; --violet-soft:rgba(203,166,247,.14);
+  --shadow:0 1px 2px rgba(0,0,0,.20), 0 10px 24px -14px rgba(0,0,0,.55);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font:15px/1.45 "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing:antialiased;
+  padding-bottom:48px;
+}
+h1,h2,h3{font-family:"Manrope", system-ui, sans-serif; margin:0; font-weight:700; letter-spacing:-.01em}
+button, input, select, textarea{font:inherit; color:inherit}
+a{color:var(--accent); text-decoration:none}
+
+.wrap{max-width:1060px; margin:0 auto; padding:0 16px}
+
+/* ── Шапка ─────────────────────────────────────────────────────────────── */
+header.top{
+  position:sticky; top:0; z-index:20;
+  background:color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.top-row{display:flex; align-items:center; gap:12px; padding:12px 0}
+.brand{display:flex; align-items:baseline; gap:10px}
+.brand h1{font-size:20px}
+.brand .today{color:var(--text-faint); font-size:13px}
+.spacer{flex:1}
+
+.tabs{display:flex; gap:4px; overflow-x:auto; padding-bottom:8px; scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{
+  border:1px solid transparent; background:transparent; color:var(--text-soft);
+  padding:7px 14px; border-radius:999px; cursor:pointer; white-space:nowrap;
+  font-weight:600; font-size:14px;
+}
+.tabs button:hover{background:var(--panel-2)}
+.tabs button[aria-selected="true"]{background:var(--accent-soft); color:var(--accent-ink); border-color:var(--accent-soft)}
+
+.icon-btn{
+  border:1px solid var(--line); background:var(--panel); color:var(--text-soft);
+  width:34px; height:34px; border-radius:10px; cursor:pointer; display:grid; place-items:center;
+  font-size:15px;
+}
+.icon-btn:hover{border-color:var(--line-strong); color:var(--text)}
+
+/* ── Картки й сітка ────────────────────────────────────────────────────── */
+main{padding-top:18px}
+section[hidden]{display:none}
+.grid{display:grid; gap:14px; grid-auto-flow:dense; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr))}
+.card{
+  background:var(--panel); border:1px solid var(--line); border-radius:16px;
+  padding:16px; box-shadow:var(--shadow);
+}
+.card.span-2{grid-column:span 2}
+@media (max-width:720px){ .card.span-2{grid-column:span 1} }
+.card h2{font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); margin-bottom:12px}
+.card h3{font-size:15px; margin-bottom:8px}
+
+.big{font-family:"Manrope", system-ui, sans-serif; font-size:38px; font-weight:800; line-height:1; letter-spacing:-.02em}
+.big small{font-size:14px; font-weight:600; color:var(--text-faint); margin-left:6px; letter-spacing:0}
+.muted{color:var(--text-faint); font-size:13px}
+.row{display:flex; align-items:center; gap:10px}
+.wrap-row{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+
+/* ── Кнопки ────────────────────────────────────────────────────────────── */
+.btn{
+  border:1px solid var(--line); background:var(--panel-2); color:var(--text);
+  padding:8px 14px; border-radius:10px; cursor:pointer; font-weight:600; font-size:14px;
+}
+.btn:hover{border-color:var(--line-strong)}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.btn.primary:hover{background:var(--accent-ink); border-color:var(--accent-ink)}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--red); border-color:var(--red-soft)}
+.btn.big-action{padding:16px 18px; border-radius:14px; font-size:16px; flex:1; text-align:left}
+.btn.big-action .sub{display:block; font-weight:500; font-size:12px; color:var(--text-faint); margin-top:2px}
+.btn:disabled{opacity:.5; cursor:default}
+
+input[type="text"], input[type="time"], input[type="number"], select, textarea{
+  background:var(--panel-2); border:1px solid var(--line); border-radius:10px;
+  padding:8px 10px; width:100%; outline:none;
+}
+input:focus, select:focus, textarea:focus{border-color:var(--accent); background:var(--panel)}
+label.field{display:block; font-size:12px; color:var(--text-faint); margin-bottom:4px}
+
+/* ── Задачі ────────────────────────────────────────────────────────────── */
+.task{
+  display:flex; align-items:center; gap:12px; padding:10px 12px;
+  border:1px solid var(--line); border-radius:12px; background:var(--panel-2); margin-bottom:8px;
+}
+.task.done{background:var(--green-soft); border-color:transparent}
+.task .check{
+  width:24px; height:24px; min-width:24px; border-radius:8px; border:1.5px solid var(--line-strong);
+  background:var(--panel); cursor:pointer; display:grid; place-items:center; color:transparent; font-size:14px;
+}
+.task.done .check{background:var(--green); border-color:var(--green); color:var(--on-accent)}
+.task .name{flex:1; font-weight:600}
+.task.done .name{color:var(--text-soft)}
+.task .meta{font-size:12px; color:var(--text-faint); font-weight:500}
+.pill{
+  font-size:12px; font-weight:700; padding:3px 8px; border-radius:999px;
+  background:var(--amber-soft); color:var(--amber); white-space:nowrap;
+}
+.pill.cold{background:var(--panel); color:var(--text-faint); border:1px solid var(--line)}
+.pill.accent{background:var(--accent-soft); color:var(--accent-ink)}
+.task-actions{display:flex; gap:4px; opacity:.55}
+.task:hover .task-actions{opacity:1}
+
+.daychips{display:flex; gap:6px; flex-wrap:wrap}
+.daychips button{
+  border:1px solid var(--line); background:var(--panel-2); color:var(--text-soft);
+  width:38px; padding:6px 0; border-radius:9px; cursor:pointer; font-size:13px; font-weight:600;
+}
+.daychips button[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+
+/* ── Теплокарта ────────────────────────────────────────────────────────── */
+.heat{display:flex; gap:3px; overflow-x:auto; padding-bottom:6px}
+.heat .week{display:grid; grid-template-rows:repeat(7, 1fr); gap:3px}
+.heat i, .heat-legend i{
+  width:13px; height:13px; border-radius:4px; background:var(--panel-2);
+  border:1px solid var(--line); display:block;
+}
+i[data-level="0"]{background:var(--red-soft); border-color:transparent}
+i[data-level="1"]{background:color-mix(in srgb, var(--green) 25%, transparent); border-color:transparent}
+i[data-level="2"]{background:color-mix(in srgb, var(--green) 55%, transparent); border-color:transparent}
+i[data-level="3"]{background:var(--green); border-color:transparent}
+.heat-legend{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-faint); margin-top:8px}
+
+/* ── Графіки ───────────────────────────────────────────────────────────── */
+.chart{width:100%; height:auto; display:block; overflow:visible}
+.chart .bar{fill:var(--accent); rx:3}
+.chart .bar.short{fill:var(--amber)}
+.chart .bar.empty{fill:var(--line)}
+.chart .goal{stroke:var(--green); stroke-width:1.5; stroke-dasharray:4 4}
+.chart .axis{stroke:var(--line)}
+.chart text{fill:var(--text-faint); font-size:10px; font-family:"JetBrains Mono", ui-monospace, monospace}
+
+/* ── Банер помічника ───────────────────────────────────────────────────── */
+.banner{
+  border-radius:14px; padding:12px 14px; margin-bottom:14px; border:1px solid transparent;
+  display:flex; gap:10px; align-items:flex-start; font-size:14px;
+}
+.banner.warn{background:var(--amber-soft); border-color:color-mix(in srgb, var(--amber) 35%, transparent); color:var(--text)}
+.banner.calm{background:var(--accent-soft); border-color:transparent}
+.banner .ico{font-size:18px; line-height:1.2}
+
+/* ── Стрічка їжі ───────────────────────────────────────────────────────── */
+.feed-day{margin-bottom:18px}
+.feed-day h3{display:flex; align-items:baseline; gap:8px; margin-bottom:10px}
+.shots{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(172px, 1fr))}
+.shot{border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel-2)}
+.shot img{width:100%; aspect-ratio:1/1; object-fit:cover; display:block; background:var(--line)}
+.shot .info{padding:8px 10px; display:flex; flex-direction:column; gap:6px}
+.shot .time{font-size:12px; color:var(--text-faint); font-family:"JetBrains Mono", monospace}
+.shot .tagline{display:flex; gap:6px; flex-wrap:wrap}
+.tagbtn{
+  border:1px solid var(--line); background:var(--panel); border-radius:999px;
+  padding:4px 10px; font-size:12px; font-weight:600; cursor:pointer; color:var(--text-soft);
+}
+.tagbtn[aria-pressed="true"].sweet{background:var(--red-soft); color:var(--red); border-color:transparent}
+.tagbtn[aria-pressed="true"].plain{background:var(--green-soft); color:var(--green); border-color:transparent}
+.thumbs{display:flex; gap:6px; flex-wrap:wrap}
+.thumbs img{width:52px; height:52px; border-radius:10px; object-fit:cover; border:1px solid var(--line)}
+
+/* ── Дрібне ────────────────────────────────────────────────────────────── */
+.empty{color:var(--text-faint); font-size:14px; padding:12px 0; text-align:center}
+.list-line{
+  display:flex; justify-content:space-between; gap:10px; padding:7px 0;
+  border-bottom:1px solid var(--line); font-size:14px;
+}
+.list-line:last-child{border-bottom:none}
+.mono{font-family:"JetBrains Mono", ui-monospace, monospace; font-size:13px}
+.stars{display:flex; gap:2px}
+.stars button{background:none; border:none; cursor:pointer; color:var(--line-strong); font-size:15px; padding:0 1px}
+.stars button.on{color:var(--amber)}
+dialog{
+  border:1px solid var(--line); border-radius:16px; background:var(--panel); color:var(--text);
+  padding:18px; max-width:420px; width:calc(100% - 32px); box-shadow:var(--shadow);
+}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+.toast{
+  position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
+  background:var(--panel); border:1px solid var(--line-strong); color:var(--text);
+  padding:10px 16px; border-radius:12px; box-shadow:var(--shadow); z-index:60;
+  font-size:14px; opacity:0; pointer-events:none; transition:opacity .18s;
+}
+.toast.show{opacity:1}
+
+/* Атрибут hidden має перемагати display у класах вище. */
+[hidden]{display:none !important}
+
+/* На вузькому екрані великі числа не мають переносити рядок. */
+@media (max-width:480px){
+  .big{font-size:30px}
+  .card{padding:14px}
+}
+
+/* ── Діалоги й дрібні елементи PWA ─────────────────────────────────────── */
+.dialog-title{font-size:18px; margin-bottom:14px}
+.dialog-sub{
+  font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint);
+  margin:18px 0 10px; padding-top:14px; border-top:1px solid var(--line);
+}
+.check-line{display:flex; gap:9px; align-items:flex-start; font-size:14px; cursor:pointer}
+.check-line input{width:18px; height:18px; margin:1px 0 0; accent-color:var(--accent); flex:none}
+.check-line .muted{font-size:13px}
+
+.card.shoot{display:flex; gap:10px; align-items:stretch; flex-wrap:wrap}
+.card.shoot .btn{flex:1; min-width:150px}
+.card.shoot .big-action{flex:2}
+
+.install-hint{
+  display:flex; gap:10px; align-items:center; justify-content:space-between;
+  flex-wrap:wrap; margin-bottom:14px;
+}
+
+/* Компактні кнопки в рядку задачі — щоб три вміщались і на телефоні. */
+.icon-btn.tiny{width:28px; height:28px; border-radius:8px; font-size:13px}
+@media (max-width:420px){
+  .task{gap:8px; padding:9px 10px}
+  .task .meta{font-size:11px}
+  .icon-btn.tiny{width:26px; height:26px}
+}
+
+/* На телефоні кнопки зйомки зручніші на всю ширину. */
+@media (max-width:480px){
+  .card.shoot .btn, .card.shoot .big-action{flex:1 1 100%}
+}

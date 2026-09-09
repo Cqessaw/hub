@@ -1,0 +1,15 @@
+# Особисті дані й секрети — ніколи не в git
+local/data/
+local/.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Дрібне сміття ОС
+Thumbs.db
+.DS_Store
