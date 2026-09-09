@@ -51,6 +51,17 @@
 
 <main class="wrap">
 
+  <div class="card install-hint" id="installHint" hidden>
+    <div>
+      <b>Поставити на екран «Домівка»</b>
+      <div class="muted" id="installText"></div>
+    </div>
+    <div class="wrap-row">
+      <button class="btn primary" id="installBtn" hidden>Встановити</button>
+      <button class="btn ghost" id="installDismiss">Пізніше</button>
+    </div>
+  </div>
+
   <!-- ── Огляд ─────────────────────────────────────────────────────────── -->
   <section id="tab-overview">
     <div id="overviewBanners"></div>
@@ -219,14 +230,17 @@
 
   <h3 class="dialog-sub">Дані</h3>
   <div class="wrap-row">
+    <button class="btn primary" id="shareBtn" hidden>Надіслати копію</button>
     <button class="btn" id="exportBtn">Зберегти копію</button>
     <button class="btn" id="exportLightBtn">Копія без фото</button>
     <button class="btn" id="importBtn">Відновити з копії</button>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </div>
   <div class="muted" id="usageLine" style="margin-top:10px"></div>
+  <div class="muted" id="persistLine" style="margin-top:4px"></div>
   <div class="muted" style="margin-top:6px">
-    Дані лежать лише в цьому браузері. Очищення даних сайту зітре їх — час від часу роби копію.
+    Дані лежать лише на цьому пристрої. Час від часу надсилай копію собі — у Telegram
+    чи на диск: із неї все відновлюється на будь-якому телефоні.
   </div>
   <button class="btn danger ghost" id="wipeBtn" style="margin-top:10px">Стерти все</button>
 
@@ -259,6 +273,13 @@
       <input type="checkbox" id="editActive">
       <span>Активна <span class="muted">(зняти — сховати задачу, історія лишиться)</span></span>
     </label>
+    <div>
+      <label class="field">Порядок у списку</label>
+      <div class="wrap-row">
+        <button class="btn ghost" id="editUp">↑ Вище</button>
+        <button class="btn ghost" id="editDown">↓ Нижче</button>
+      </div>
+    </div>
   </div>
   <div class="wrap-row" style="justify-content:space-between; margin-top:16px">
     <button class="btn danger ghost" id="editDelete">Видалити</button>

@@ -410,8 +410,8 @@
   // ── Налаштування, копії ───────────────────────────────────────────────
 
   function openSettings() {
-    return Promise.all([Hub.getSettings(), Hub.usage()]).then(function (r) {
-      var settings = r[0], usage = r[1];
+    return Promise.all([Hub.getSettings(), Hub.usage(), Hub.persist()]).then(function (r) {
+      var settings = r[0], usage = r[1], persisted = r[2];
       state.settings = settings;
       $("#setGoal").value = String(Number(settings.sleepGoalMinutes) / 60);
       $("#setBedtime").value = settings.bedtime || "23:00";
@@ -420,6 +420,11 @@
       $("#usageLine").textContent = usage && usage.used
         ? "Займають на пристрої: " + (usage.used / 1048576).toFixed(1) + " МБ"
         : "";
+      $("#persistLine").textContent = persisted === null ? ""
+        : persisted
+          ? "Сховище захищене: браузер не почистить дані сам."
+          : "Браузер не дав захист сховища — копії тут особливо важливі.";
+      $("#shareBtn").hidden = !canShareFiles();
       $("#settingsDialog").showModal();
     });
   }
@@ -459,12 +464,39 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
+  function backupName(withPhotos) {
+    return "hub-" + Hub.today() + (withPhotos ? "" : "-без-фото") + ".json";
+  }
+
   function exportBackup(withPhotos) {
     toast("Готую копію…");
     return Hub.exportAll(withPhotos).then(function (data) {
-      download("hub-" + Hub.today() + (withPhotos ? "" : "-без-фото") + ".json", JSON.stringify(data));
+      download(backupName(withPhotos), JSON.stringify(data));
       toast("Копію збережено");
     }).catch(fail);
+  }
+
+  function canShareFiles() {
+    if (!navigator.canShare || !navigator.share || typeof File !== "function") return false;
+    try {
+      return navigator.canShare({ files: [new File(["{}"], "a.json", { type: "application/json" })] });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function shareBackup() {
+    // На телефоні зручніше відправити копію собі в месенджер, ніж шукати теку завантажень.
+    toast("Готую копію…");
+    return Hub.exportAll(true).then(function (data) {
+      var file = new File([JSON.stringify(data)], backupName(true), { type: "application/json" });
+      return navigator.share({ files: [file], title: "Копія Хабу" });
+    }).then(function () {
+      toast("Надіслано");
+    }).catch(function (error) {
+      if (error && error.name === "AbortError") return;   // просто передумав
+      fail(error);
+    });
   }
 
   function importBackup(file) {
@@ -531,6 +563,35 @@
     }).catch(function () { /* сповіщення — не привід ламати сторінку */ });
   }
 
+  // ── Встановлення на телефон ───────────────────────────────────────────
+
+  var installPrompt = null;
+
+  function isStandalone() {
+    return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  }
+
+  function installHidden() {
+    try { return localStorage.getItem("hub_install_hidden") === "1"; } catch (e) { return false; }
+  }
+
+  function updateInstallHint() {
+    var hint = $("#installHint");
+    if (isStandalone() || installHidden()) { hint.hidden = true; return; }
+    if (installPrompt) {
+      $("#installBtn").hidden = false;
+      $("#installText").textContent = "Відкриватиметься з іконки й працюватиме без інтернету.";
+      hint.hidden = false;
+    } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+      // iOS не дає програмного запиту — лишається підказати шлях.
+      $("#installBtn").hidden = true;
+      $("#installText").textContent = "Кнопка «Поділитися» внизу Safari → «На екран „Домівка“».";
+      hint.hidden = false;
+    } else {
+      hint.hidden = true;
+    }
+  }
+
   // ── Навігація ─────────────────────────────────────────────────────────
 
   function showTab(name) {
@@ -569,6 +630,7 @@
 
     $("#settingsBtn").addEventListener("click", function () { openSettings().catch(fail); });
     $("#setClose").addEventListener("click", function () { saveSettingsFromForm(); });
+    $("#shareBtn").addEventListener("click", function () { shareBackup(); });
     $("#exportBtn").addEventListener("click", function () { exportBackup(true); });
     $("#exportLightBtn").addEventListener("click", function () { exportBackup(false); });
     $("#importBtn").addEventListener("click", function () { $("#importFile").click(); });
@@ -587,6 +649,15 @@
     });
 
     $("#editCancel").addEventListener("click", function () { $("#taskDialog").close(); });
+    [["#editUp", -1], ["#editDown", 1]].forEach(function (pair) {
+      $(pair[0]).addEventListener("click", function () {
+        if (!state.editing) return;
+        Hub.moveTask(state.editing.id, pair[1]).then(function (moved) {
+          toast(moved === null ? "Далі нікуди" : "Переставив");
+          return refresh();
+        }).catch(fail);
+      });
+    });
     $("#editSave").addEventListener("click", function () { saveTaskDialog(); });
     $("#editRule").addEventListener("change", function () {
       $("#editDays").hidden = $("#editRule").value !== "days";
@@ -726,6 +797,29 @@
       event.target.value = "";
     });
 
+    $("#installBtn").addEventListener("click", function () {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      installPrompt.userChoice.then(function () {
+        installPrompt = null;
+        updateInstallHint();
+      });
+    });
+    $("#installDismiss").addEventListener("click", function () {
+      try { localStorage.setItem("hub_install_hidden", "1"); } catch (e) { /* байдуже */ }
+      $("#installHint").hidden = true;
+    });
+    window.addEventListener("beforeinstallprompt", function (event) {
+      event.preventDefault();
+      installPrompt = event;
+      updateInstallHint();
+    });
+    window.addEventListener("appinstalled", function () {
+      installPrompt = null;
+      $("#installHint").hidden = true;
+      toast("Готово — тепер відкривай з іконки");
+    });
+
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) refresh();
     });
@@ -737,6 +831,9 @@
     $("#todayLabel").textContent = humanDate(Hub.today(), { weekday: "long", day: "numeric", month: "long" });
     renderChips($("#newTaskDays"), state.newTaskDays);
     bind();
+    // Просимо захист сховища одразу: телефон не має права стерти щоденник сам.
+    Hub.persist().catch(function () { /* не всі браузери це вміють */ });
+    updateInstallHint();
 
     var saved = "overview";
     try { saved = localStorage.getItem("hub_tab") || "overview"; } catch (e) { /* байдуже */ }

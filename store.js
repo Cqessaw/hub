@@ -927,6 +927,14 @@ var Hub = (function () {
     }).catch(function () { return null; });
   }
 
+  function persist() {
+    // Без цього браузер телефона має право почистити сховище, коли забракне місця.
+    if (!navigator.storage || !navigator.storage.persist) return Promise.resolve(null);
+    return navigator.storage.persisted()
+      .then(function (already) { return already || navigator.storage.persist(); })
+      .catch(function () { return null; });
+  }
+
   return {
     // дати
     isoOf: isoOf, today: today, shift: shift, parseISO: parseISO,
@@ -948,6 +956,6 @@ var Hub = (function () {
     weeklyStats: weeklyStats, thisWeek: thisWeek,
     // спільне
     getSettings: getSettings, saveSettings: saveSettings,
-    exportAll: exportAll, importAll: importAll, wipe: wipe, usage: usage
+    exportAll: exportAll, importAll: importAll, wipe: wipe, usage: usage, persist: persist
   };
 })();

@@ -259,10 +259,45 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 @media (max-width:420px){
   .task{gap:8px; padding:9px 10px}
   .task .meta{font-size:11px}
-  .icon-btn.tiny{width:26px; height:26px}
 }
 
 /* На телефоні кнопки зйомки зручніші на всю ширину. */
 @media (max-width:480px){
   .card.shoot .btn, .card.shoot .big-action{flex:1 1 100%}
 }
+
+/* ── Спершу телефон: вкладки внизу, під великий палець ─────────────────── */
+@media (max-width:600px){
+  /* backdrop-filter створює контейнер для fixed — на мобільному він зайвий. */
+  header.top{backdrop-filter:none; background:var(--bg)}
+  header.top .wrap{padding-bottom:2px}
+
+  .tabs{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:var(--panel); border-top:1px solid var(--line);
+    gap:2px; padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 24px -18px rgba(0,0,0,.6);
+  }
+  .tabs button{flex:1; text-align:center; padding:10px 4px; border-radius:12px; font-size:13px}
+
+  body{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+  .toast{bottom:calc(86px + env(safe-area-inset-bottom))}
+
+  /* Пальцем треба влучати без прицілювання. */
+  .icon-btn{width:38px; height:38px}
+  .icon-btn.tiny{width:34px; height:34px; font-size:15px}
+  .task .check{width:28px; height:28px; min-width:28px}
+  .task .name{min-width:0}
+  .tagbtn{padding:7px 12px; font-size:13px}
+  .stars button{font-size:19px; padding:0 3px}
+  dialog{padding:16px}
+
+  /* Наведення на телефоні немає — кнопки мають бути видимі одразу. */
+  .task-actions{opacity:1}
+  /* Переставляння — рідка дія: на вузькому екрані вона живе в діалозі задачі. */
+  .task-actions [data-move]{display:none}
+}
+
+/* Підказка про встановлення — така сама картка, але помітніша. */
+.install-hint{border-color:var(--accent-soft); background:var(--panel-2)}
+.install-hint b{font-family:"Manrope", system-ui, sans-serif}
