@@ -62,17 +62,29 @@
     toast(error && error.message ? error.message : "Щось пішло не так");
   }
 
-  // Посилання на фото треба відпускати, інакше пам'ять тече при кожному малюванні.
-  var urlBuckets = {};
-  function objectUrl(bucket, blob) {
-    var list = urlBuckets[bucket] || (urlBuckets[bucket] = []);
-    var url = URL.createObjectURL(blob);
-    list.push(url);
+  // Одне посилання на фото живе, доки фото на екрані: створювати щоразу нове —
+  // означає відкликати старе просто тоді, коли картинка ще вантажиться.
+  var photoUrls = new Map();
+
+  function photoUrl(item) {
+    if (!item.blob) return "";
+    var url = photoUrls.get(item.id);
+    if (!url) {
+      url = URL.createObjectURL(item.blob);
+      photoUrls.set(item.id, url);
+    }
     return url;
   }
-  function releaseUrls(bucket) {
-    (urlBuckets[bucket] || []).forEach(function (url) { URL.revokeObjectURL(url); });
-    urlBuckets[bucket] = [];
+
+  function prunePhotoUrls() {
+    // Відпускаємо тільки те, чого вже немає в розмітці.
+    var alive = new Set($$("img[data-photo]").map(function (img) { return Number(img.dataset.photo); }));
+    photoUrls.forEach(function (url, id) {
+      if (!alive.has(id)) {
+        URL.revokeObjectURL(url);
+        photoUrls.delete(id);
+      }
+    });
   }
 
   // ── Графіки: маленький свій SVG замість важкої бібліотеки ─────────────
@@ -196,15 +208,15 @@
         ? "цього тижня солодке " + foodWeek.sweets + " " + plural(foodWeek.sweets, "раз", "рази", "разів")
         : "цього тижня солодкого ще не було";
 
-      releaseUrls("overview");
       $("#ovFoodThumbs").innerHTML = latest.length
         ? latest.map(function (item) {
             return item.blob
-              ? '<img src="' + objectUrl("overview", item.blob) + '" alt="" title="' +
+              ? '<img src="' + photoUrl(item) + '" data-photo="' + item.id + '" alt="" title="' +
                 esc(item.ts.replace("T", " ")) + '">'
               : "";
           }).join("")
         : '<span class="muted">Фото ще немає. Натисни «Сфотографувати їжу» на вкладці «Їжа».</span>';
+      prunePhotoUrls();
 
       var banners = advice.messages.map(function (message) {
         return '<div class="banner ' + (advice.deficit ? "warn" : "calm") + '"><span class="ico">' +
@@ -340,9 +352,11 @@
             '<input type="time" value="' + hhmm(night.wakeTime) + '" data-field="wakeTime" style="width:128px">' +
           "</span>" +
           '<span class="mono" style="min-width:76px; text-align:right">' + fmtShort(night.duration) + "</span>" +
-          '<span class="stars">' + [1, 2, 3, 4, 5].map(function (n) {
-            return '<button data-q="' + n + '" class="' + (night.quality >= n ? "on" : "") + '">★</button>';
-          }).join("") + "</span></div>";
+          '<span class="stars" data-value="' + (night.quality || 0) +
+            '" title="Натисни ту саму зірку ще раз, щоб прибрати оцінку">' +
+            [1, 2, 3, 4, 5].map(function (n) {
+              return '<button data-q="' + n + '" class="' + (night.quality >= n ? "on" : "") + '">★</button>';
+            }).join("") + "</span></div>";
       }).join("");
     });
   }
@@ -371,7 +385,6 @@
           };
         }), { height: 150, unit: "count" });
 
-        releaseUrls("feed");
         $("#foodFeed").innerHTML = feed.length
           ? feed.map(function (day) {
               return '<div class="feed-day"><h3>' +
@@ -381,12 +394,13 @@
                 '<div class="shots">' + day.items.map(shotCard).join("") + "</div></div>";
             }).join("")
           : '<div class="card"><div class="empty">Фото ще немає.<br>Натисни «Сфотографувати їжу» — знімок одразу потрапить у стрічку.</div></div>';
+        prunePhotoUrls();
       });
   }
 
   function shotCard(item) {
     return '<div class="shot" data-food="' + item.id + '">' +
-      (item.blob ? '<img src="' + objectUrl("feed", item.blob) + '" alt="" loading="lazy">' : "") +
+      (item.blob ? '<img src="' + photoUrl(item) + '" data-photo="' + item.id + '" alt="" loading="lazy">' : "") +
       '<div class="info"><span class="time">' + esc(item.ts.slice(11, 16)) +
       (item.note ? " · " + esc(item.note) : "") + "</span>" +
       '<div class="tagline">' +
@@ -747,7 +761,14 @@
       var star = event.target.closest(".stars button");
       if (star) {
         var line = star.closest("[data-night]");
-        Hub.saveNight(line.dataset.night, { quality: Number(star.dataset.q) }).then(renderSleep).catch(fail);
+        var picked = Number(star.dataset.q);
+        var current = Number(star.parentNode.dataset.value || 0);
+        // Та сама зірка вдруге — оцінку знято (0 у сховищі означає «немає»).
+        var next = picked === current ? 0 : picked;
+        Hub.saveNight(line.dataset.night, { quality: next }).then(function () {
+          if (!next) toast("Оцінку прибрано");
+          return renderSleep();
+        }).catch(fail);
       }
     });
 

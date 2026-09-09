@@ -622,7 +622,9 @@ var Hub = (function () {
         canvas.getContext("2d").drawImage(image, 0, 0, width, height);
         URL.revokeObjectURL(url);
         canvas.toBlob(function (blob) {
-          resolve(blob && blob.size < file.size ? blob : file);
+          // Свій blob, а не файл із камери: файл лежить у тимчасовій теці системи,
+          // і телефон має право прибрати її будь-коли.
+          resolve(blob || file);
         }, "image/jpeg", 0.82);
       };
       image.onerror = function () {
