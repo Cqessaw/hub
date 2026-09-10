@@ -220,8 +220,9 @@ i[data-level="3"]{background:var(--green); border-color:transparent}
   border:1px solid var(--line); background:var(--panel); border-radius:999px;
   padding:4px 10px; font-size:12px; font-weight:600; cursor:pointer; color:var(--text-soft);
 }
-.tagbtn[aria-pressed="true"].sweet{background:var(--red-soft); color:var(--red); border-color:transparent}
-.tagbtn[aria-pressed="true"].plain{background:var(--green-soft); color:var(--green); border-color:transparent}
+.tagbtn[aria-pressed="true"]{background:var(--green-soft); color:var(--green); border-color:transparent}
+.tagbtn.avoid[aria-pressed="true"]{background:var(--red-soft); color:var(--red)}
+.tagbtn.ghost{color:var(--text-faint); padding:4px 9px}
 .thumbs{display:flex; gap:6px; flex-wrap:wrap}
 .thumbs img{width:52px; height:52px; border-radius:10px; object-fit:cover; border:1px solid var(--line)}
 
@@ -324,3 +325,52 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 /* Підказка про встановлення — така сама картка, але помітніша. */
 .install-hint{border-color:var(--accent-soft); background:var(--panel-2)}
 .install-hint b{font-family:"Manrope", system-ui, sans-serif}
+
+/* ── Фільтр історії задач ──────────────────────────────────────────────── */
+.chip{
+  border:1px solid var(--line); background:var(--panel-2); color:var(--text-soft);
+  padding:6px 12px; border-radius:999px; cursor:pointer; font-size:13px; font-weight:600;
+  white-space:nowrap;
+}
+.chip[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.filter-row{gap:6px}
+
+/* ── Ніч зі своїми дріманнями ──────────────────────────────────────────── */
+.night{border-bottom:1px solid var(--line); padding:10px 0}
+.night:last-child{border-bottom:none}
+.night-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.night-date{min-width:64px; color:var(--text-soft)}
+.night-row .dur{min-width:56px; text-align:right}
+.timepair{display:flex; align-items:flex-start; gap:6px}
+.tf{display:flex; flex-direction:column; gap:2px}
+.tf input{width:136px; padding-left:8px; padding-right:4px}
+.tf em{font-style:normal; font-size:11px; color:var(--text-faint); padding-left:2px}
+
+.naps{margin:8px 0 0 12px; padding-left:12px; border-left:2px solid var(--line)}
+.nap{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px}
+.nap input{width:130px; padding-left:8px; padding-right:4px}
+.nap-ico{font-size:14px}
+.nap-dur{min-width:46px; color:var(--text-soft)}
+.nap-add{padding:5px 10px; font-size:13px; color:var(--text-faint)}
+
+.chart .bar.nap{fill:var(--violet)}
+
+/* ── Категорії їжі ─────────────────────────────────────────────────────── */
+.pill.hot{background:var(--red-soft); color:var(--red)}
+.pill.good{background:var(--green-soft); color:var(--green)}
+.tag-line{align-items:center}
+.tag-line .check-line{gap:6px; font-size:13px}
+.tag-line .check-line input{width:16px; height:16px}
+
+@media (max-width:600px){
+  .night-row{gap:8px}
+  .tf input{width:132px}
+  .nap input{width:126px}
+  .filter-row{overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px}
+}
+
+/* Чип-значок на картці фото: компактний, щоб п'ять категорій вміщались у два рядки. */
+.tagbtn.icon{
+  padding:5px 0; width:34px; text-align:center; font-size:15px; line-height:1.1;
+}
+.tag-names{font-size:11px; line-height:1.3}

@@ -90,7 +90,7 @@
       </div>
 
       <div class="card">
-        <h2>Без солодкого</h2>
+        <h2 id="ovSweetTitle">Без солодкого</h2>
         <div class="row" style="justify-content:space-between; align-items:flex-end">
           <div class="big" id="ovSweetStreak">—<small>днів</small></div>
           <div class="muted" id="ovSweetHint"></div>
@@ -135,7 +135,16 @@
     </div>
 
     <div class="card">
-      <h2>Історія</h2>
+      <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <h2 style="margin:0">Історія</h2>
+        <div class="wrap-row">
+          <button class="btn ghost" data-hist-days="84" aria-pressed="true">12 тижнів</button>
+          <button class="btn ghost" data-hist-days="182" aria-pressed="false">Пів року</button>
+          <button class="btn ghost" data-hist-days="364" aria-pressed="false">Рік</button>
+        </div>
+      </div>
+      <div class="wrap-row filter-row" id="histFilter" style="margin:12px 0"></div>
+      <div class="muted" id="histSummary" style="margin-bottom:12px"></div>
       <div class="heat" id="taskHeat"></div>
       <div class="heat-legend">
         <span>менше</span>
@@ -143,6 +152,7 @@
         <span>більше</span>
       </div>
       <div id="taskLog" style="margin-top:14px"></div>
+      <button class="btn ghost" id="histMore" style="margin-top:10px; width:100%">Показати всю історію</button>
     </div>
   </section>
 
@@ -172,6 +182,10 @@
 
     <div class="card">
       <h2>Останні ночі</h2>
+      <div class="muted" style="margin:-4px 0 12px">
+        Ніч підписана датою, коли ти ліг: ліг 9-го — прокинувся 10-го.
+        Під кожним рядком можна додати дрімання серед дня.
+      </div>
       <div id="sleepTable"></div>
     </div>
   </section>
@@ -180,17 +194,24 @@
   <section id="tab-food" hidden>
     <div class="grid" style="margin-bottom:14px">
       <div class="card">
-        <h2>Без солодкого</h2>
+        <h2 id="foodStreakTitle">Без солодкого</h2>
         <div class="big" id="foodStreak">—<small>днів</small></div>
         <div class="muted" id="foodStreakHint" style="margin-top:6px"></div>
       </div>
       <div class="card">
         <h2>Цей тиждень</h2>
-        <div class="big" id="foodWeekSweets">—<small>разів солодке</small></div>
+        <div class="big" id="foodWeekSweets">—</div>
         <div class="muted" id="foodWeekHint" style="margin-top:6px"></div>
       </div>
       <div class="card span-2">
-        <h2>Солодке по тижнях</h2>
+        <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
+          <h2 style="margin:0">Категорії за тиждень</h2>
+          <button class="btn ghost" id="tagsBtn">Налаштувати</button>
+        </div>
+        <div id="foodTagStats" style="margin-top:12px"></div>
+      </div>
+      <div class="card span-2">
+        <h2>Зриви по тижнях</h2>
         <div id="foodChart"></div>
       </div>
     </div>
@@ -246,6 +267,36 @@
 
   <div class="wrap-row" style="justify-content:flex-end; margin-top:16px">
     <button class="btn primary" id="setClose">Готово</button>
+  </div>
+</dialog>
+
+<dialog id="tagsDialog">
+  <h2 class="dialog-title">Категорії їжі</h2>
+  <div class="muted" style="margin-bottom:12px">
+    «Уникаю» означає, що ця категорія рве стрік. На знімку можна поставити
+    кілька категорій одразу.
+  </div>
+  <div id="tagList"></div>
+
+  <h3 class="dialog-sub">Нова категорія</h3>
+  <div class="wrap-row" style="align-items:flex-end">
+    <div style="width:76px">
+      <label class="field" for="tagEmoji">Значок</label>
+      <input type="text" id="tagEmoji" placeholder="🍕" maxlength="4">
+    </div>
+    <div style="flex:1; min-width:130px">
+      <label class="field" for="tagName">Назва</label>
+      <input type="text" id="tagName" placeholder="Наприклад: фастфуд" autocomplete="off">
+    </div>
+    <button class="btn primary" id="tagAdd">Додати</button>
+  </div>
+  <label class="check-line" style="margin-top:10px">
+    <input type="checkbox" id="tagAvoid">
+    <span>Уникаю <span class="muted">(рве стрік)</span></span>
+  </label>
+
+  <div class="wrap-row" style="justify-content:flex-end; margin-top:16px">
+    <button class="btn primary" id="tagsClose">Готово</button>
   </div>
 </dialog>
 

@@ -361,10 +361,11 @@ var Hub = (function () {
     });
   }
 
-  function history(days, end) {
+  function history(days, end, taskId) {
     var last = end || today();
     var first = shift(last, -(days - 1));
     return taskContext().then(function (ctx) {
+      var only = taskId ? ctx.tasks.filter(function (t) { return t.id === taskId; }) : null;
       var starts = {};
       ctx.tasks.forEach(function (task) {
         var created = String(task.createdAt || last).slice(0, 10);
@@ -376,7 +377,9 @@ var Hub = (function () {
       var cursor = first;
       while (cursor <= last) {
         var doneIds = ctx.doneByDate[cursor] || [];
-        var planned = ctx.tasks.filter(function (task) {
+        var pool = only || ctx.tasks;
+        if (only) doneIds = doneIds.filter(function (id) { return id === taskId; });
+        var planned = pool.filter(function (task) {
           return isRecurring(task.rule) && isDue(task.rule, cursor) && starts[task.id] <= cursor;
         });
         var plannedIds = planned.map(function (t) { return t.id; });
@@ -395,7 +398,7 @@ var Hub = (function () {
     });
   }
 
-  function logByDates(days, end) {
+  function logByDates(days, end, taskId) {
     var last = end || today();
     var first = shift(last, -(days - 1));
     return taskContext().then(function (ctx) {
@@ -405,13 +408,64 @@ var Hub = (function () {
         .filter(function (date) { return date >= first && date <= last; })
         .sort().reverse()
         .map(function (date) {
-          return {
-            date: date,
-            names: ctx.doneByDate[date]
-              .map(function (id) { return names[id]; })
-              .filter(Boolean)
-          };
-        });
+          var ids = ctx.doneByDate[date];
+          if (taskId) ids = ids.filter(function (id) { return id === taskId; });
+          return { date: date, names: ids.map(function (id) { return names[id]; }).filter(Boolean) };
+        })
+        .filter(function (day) { return day.names.length; });
+    });
+  }
+
+  function bestStreakOf(rule, doneDates) {
+    if (!doneDates.length) return 0;
+    var done = new Set(doneDates);
+    var best = 0, current = 0;
+    var cursor = doneDates[0];
+    var last = doneDates[doneDates.length - 1];
+    while (cursor <= last) {
+      if (isDue(rule, cursor)) {
+        if (done.has(cursor)) { current += 1; best = Math.max(best, current); }
+        else current = 0;
+      }
+      cursor = shift(cursor, 1);
+    }
+    return best;
+  }
+
+  function taskStats(taskId, days, end) {
+    // Скільки разів задачу зроблено за період і як часто це виходить.
+    var last = end || today();
+    var first = shift(last, -(days - 1));
+    return taskContext().then(function (ctx) {
+      var task = ctx.tasks.find(function (t) { return t.id === taskId; });
+      if (!task) return null;
+      var dates = ctx.doneByTask[task.id] || [];
+      var inRange = dates.filter(function (d) { return d >= first && d <= last; });
+      var start = dates.length && dates[0] < String(task.createdAt || last).slice(0, 10)
+        ? dates[0] : String(task.createdAt || last).slice(0, 10);
+
+      var planned = 0;
+      var cursor = first;
+      while (cursor <= last) {
+        if (isRecurring(task.rule) && isDue(task.rule, cursor) && start <= cursor) planned += 1;
+        cursor = shift(cursor, 1);
+      }
+
+      return {
+        id: task.id,
+        name: task.name,
+        rule: task.rule,
+        ruleLabel: describeRule(task.rule),
+        recurring: isRecurring(task.rule),
+        done: inRange.length,
+        planned: planned,
+        ratio: planned ? inRange.length / planned : null,
+        perWeek: Math.round((inRange.length / days) * 7 * 10) / 10,
+        streak: streakOf(task.rule, dates, last),
+        best: bestStreakOf(task.rule, dates),
+        total: dates.length,
+        firstDone: dates.length ? dates[0] : null
+      };
     });
   }
 
@@ -443,7 +497,11 @@ var Hub = (function () {
       var transaction = db.transaction("sleep", "readwrite");
       var store = transaction.objectStore("sleep");
       return req(store.get(night)).then(function (row) {
-        var entry = row || { date: night, sleepTime: null, wakeTime: null, duration: null, quality: null, note: "" };
+        var entry = row || {
+          date: night, sleepTime: null, wakeTime: null,
+          duration: null, quality: null, note: "", naps: []
+        };
+        if (!Array.isArray(entry.naps)) entry.naps = [];
         if (patch.sleepTime !== undefined) {
           entry.sleepTime = patch.sleepTime && patch.sleepTime.length <= 5
             ? combine(night, patch.sleepTime, "sleep") : (patch.sleepTime || null);
@@ -485,6 +543,72 @@ var Hub = (function () {
 
   function deleteNight(night) { return remove("sleep", night); }
 
+  // ── Дрімання серед дня ──────────────────────────────────────────────────
+
+  function napMinutes(nap) {
+    if (!nap || !nap.start || !nap.end) return null;
+    var a = nap.start.split(":").map(Number);
+    var b = nap.end.split(":").map(Number);
+    var minutes = (b[0] * 60 + b[1]) - (a[0] * 60 + a[1]);
+    if (minutes <= 0) minutes += 24 * 60;      // задрімав під північ
+    return minutes > 12 * 60 ? null : minutes;
+  }
+
+  function napsOf(entry) {
+    return Array.isArray(entry && entry.naps) ? entry.naps : [];
+  }
+
+  function napTotal(entry) {
+    return napsOf(entry).reduce(function (sum, nap) { return sum + (napMinutes(nap) || 0); }, 0);
+  }
+
+  function withNaps(date, change) {
+    return open().then(function (db) {
+      var transaction = db.transaction("sleep", "readwrite");
+      var store = transaction.objectStore("sleep");
+      return req(store.get(date)).then(function (row) {
+        var entry = row || {
+          date: date, sleepTime: null, wakeTime: null,
+          duration: null, quality: null, note: "", naps: []
+        };
+        if (!Array.isArray(entry.naps)) entry.naps = [];
+        change(entry.naps);
+        entry.naps.forEach(function (nap) { nap.duration = napMinutes(nap); });
+        entry.naps.sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+        return req(store.put(entry)).then(function () { return entry; });
+      });
+    });
+  }
+
+  function addNap(date, start, end, note) {
+    if (!start) throw new Error("Вкажи, коли задрімав");
+    return withNaps(date, function (naps) {
+      naps.push({ start: start, end: end || "", note: String(note || "").trim() });
+    });
+  }
+
+  function saveNap(date, index, patch) {
+    return withNaps(date, function (naps) {
+      var nap = naps[index];
+      if (!nap) throw new Error("Такого дрімання немає");
+      if (patch.start !== undefined) nap.start = patch.start || "";
+      if (patch.end !== undefined) nap.end = patch.end || "";
+      if (patch.note !== undefined) nap.note = String(patch.note).trim();
+    });
+  }
+
+  function deleteNap(date, index) {
+    return withNaps(date, function (naps) { naps.splice(index, 1); });
+  }
+
+  function clearNight(date) {
+    // Прибираємо години сну; дрімання цього дня лишаються.
+    return saveNight(date, { sleepTime: "", wakeTime: "", quality: 0 }).then(function (entry) {
+      if (!napsOf(entry).length) return remove("sleep", date).then(function () { return null; });
+      return entry;
+    });
+  }
+
   function nights(days, end) {
     var last = end || today();
     var first = shift(last, -(days - 1));
@@ -494,7 +618,14 @@ var Hub = (function () {
       var out = [];
       var cursor = first;
       while (cursor <= last) {
-        out.push(byDate[cursor] || { date: cursor, sleepTime: null, wakeTime: null, duration: null, quality: null, note: "" });
+        var row = byDate[cursor] || {
+          date: cursor, sleepTime: null, wakeTime: null,
+          duration: null, quality: null, note: "", naps: []
+        };
+        row.naps = napsOf(row);
+        row.napMinutes = napTotal(row);
+        row.total = (row.duration || 0) + row.napMinutes;
+        out.push(row);
         cursor = shift(cursor, 1);
       }
       return out;
@@ -503,7 +634,14 @@ var Hub = (function () {
 
   function statsOf(rows) {
     var filled = rows.filter(function (r) { return r.duration; });
-    if (!filled.length) return { nights: 0, avg: null, min: null, max: null, avgQuality: null };
+    var napSum = rows.reduce(function (sum, r) { return sum + (r.napMinutes || 0); }, 0);
+    var napDays = rows.filter(function (r) { return r.napMinutes; }).length;
+    if (!filled.length) {
+      return {
+        nights: 0, avg: null, min: null, max: null, avgQuality: null,
+        napMinutes: napSum, napDays: napDays, avgTotal: null
+      };
+    }
     var durations = filled.map(function (r) { return r.duration; });
     var qualities = filled.filter(function (r) { return r.quality; }).map(function (r) { return r.quality; });
     return {
@@ -513,7 +651,10 @@ var Hub = (function () {
       max: Math.max.apply(null, durations),
       avgQuality: qualities.length
         ? Math.round((qualities.reduce(function (a, b) { return a + b; }, 0) / qualities.length) * 10) / 10
-        : null
+        : null,
+      napMinutes: napSum,
+      napDays: napDays,
+      avgTotal: Math.round((durations.reduce(function (a, b) { return a + b; }, 0) + napSum) / filled.length)
     };
   }
 
@@ -594,17 +735,85 @@ var Hub = (function () {
 
   // ── Модуль 3: їжа ───────────────────────────────────────────────────────
 
-  var SWEET = "sweet";
-  var PLAIN = "plain";
-  var TAGS = { sweet: "Солодке", plain: "Звичайне" };
   var MAX_SIDE = 1280;
 
-  function normalizeTag(tag) {
-    if (tag === null || tag === undefined || tag === "") return null;
-    var clean = String(tag).trim().toLowerCase();
-    if (clean === "none" || clean === "null") return null;
-    if (clean === SWEET || clean === PLAIN) return clean;
-    throw new Error("Невідомий тег: " + tag);
+  // Категорії їжі задає користувач. «Звичайне» — основа, решту можна додавати
+  // й прибирати; avoid означає «те, чого уникаю» — саме воно рве стрік.
+  var DEFAULT_FOOD_TAGS = [
+    { id: "plain",   name: "Звичайне", emoji: "🥗", avoid: false },
+    { id: "sweet",   name: "Солодке",  emoji: "🍰", avoid: true  },
+    { id: "protein", name: "Білкове",  emoji: "🍗", avoid: false },
+    { id: "fast",    name: "Фастфуд",  emoji: "🍟", avoid: true  },
+    { id: "ideal",   name: "Ідеально", emoji: "✅", avoid: false }
+  ];
+
+  function getFoodTags() {
+    return getSettings().then(function (settings) {
+      var list = settings.foodTags;
+      if (!Array.isArray(list) || !list.length) {
+        return DEFAULT_FOOD_TAGS.map(function (t) { return Object.assign({}, t); });
+      }
+      return list.map(function (t) {
+        return { id: t.id, name: t.name, emoji: t.emoji || "🍽", avoid: !!t.avoid };
+      });
+    });
+  }
+
+  function saveFoodTags(list) {
+    return saveSettings({ foodTags: list }).then(function () { return list; });
+  }
+
+  function addFoodTag(name, emoji, avoid) {
+    var clean = String(name || "").trim();
+    if (!clean) throw new Error("Назва категорії не може бути порожньою");
+    return getFoodTags().then(function (list) {
+      if (list.some(function (t) { return t.name.toLowerCase() === clean.toLowerCase(); })) {
+        throw new Error("Така категорія вже є");
+      }
+      list.push({
+        id: "t" + Date.now().toString(36),
+        name: clean.slice(0, 24),
+        emoji: String(emoji || "").trim().slice(0, 4) || "🍽",
+        avoid: !!avoid
+      });
+      return saveFoodTags(list);
+    });
+  }
+
+  function updateFoodTag(id, patch) {
+    return getFoodTags().then(function (list) {
+      var tag = list.find(function (t) { return t.id === id; });
+      if (!tag) throw new Error("Категорії немає");
+      if (patch.name !== undefined) {
+        var clean = String(patch.name).trim();
+        if (!clean) throw new Error("Назва категорії не може бути порожньою");
+        tag.name = clean.slice(0, 24);
+      }
+      if (patch.emoji !== undefined) tag.emoji = String(patch.emoji).trim().slice(0, 4) || "🍽";
+      if (patch.avoid !== undefined) tag.avoid = !!patch.avoid;
+      return saveFoodTags(list);
+    });
+  }
+
+  function deleteFoodTag(id) {
+    // Прибираємо категорію і водночас знімаємо її з усіх знімків.
+    return getFoodTags().then(function (list) {
+      var rest = list.filter(function (t) { return t.id !== id; });
+      if (!rest.length) throw new Error("Хоч одна категорія має лишитись");
+      return saveFoodTags(rest);
+    }).then(foodRows).then(function (rows) {
+      return rows.filter(function (row) { return tagsOf(row).indexOf(id) !== -1; })
+        .reduce(function (chain, row) {
+          return chain.then(function () {
+            return setTags(row.id, tagsOf(row).filter(function (t) { return t !== id; }));
+          });
+        }, Promise.resolve());
+    });
+  }
+
+  function tagsOf(entry) {
+    if (Array.isArray(entry.tags)) return entry.tags;
+    return entry.tag ? [entry.tag] : [];
   }
 
   function shrink(file) {
@@ -639,14 +848,51 @@ var Hub = (function () {
     var opts = options || {};
     return shrink(file).then(function (blob) {
       var moment = opts.moment || new Date();
+      var tags = Array.isArray(opts.tags) ? opts.tags : (opts.tag ? [opts.tag] : []);
       return put("food", {
         ts: stamp(moment),
         date: isoOf(moment),
         blob: blob,
         type: blob.type || "image/jpeg",
-        tag: normalizeTag(opts.tag),
+        tags: tags,
+        tag: mirrorTag(tags),
         note: String(opts.note || "").trim(),
         source: opts.source || "camera"
+      });
+    });
+  }
+
+  function mirrorTag(tags) {
+    // Старі копії й Python-хаб знають лише одне поле — лишаємо його осмисленим.
+    if (!tags.length) return null;
+    return tags.indexOf("sweet") !== -1 ? "sweet" : tags[0];
+  }
+
+  function setTags(id, tags) {
+    return open().then(function (db) {
+      var transaction = db.transaction("food", "readwrite");
+      var store = transaction.objectStore("food");
+      return req(store.get(id)).then(function (entry) {
+        if (!entry) throw new Error("Запису немає");
+        entry.tags = tags.slice();
+        entry.tag = mirrorTag(entry.tags);
+        return req(store.put(entry)).then(function () { return entry; });
+      });
+    });
+  }
+
+  function toggleTag(id, tagId) {
+    return open().then(function (db) {
+      var transaction = db.transaction("food", "readwrite");
+      var store = transaction.objectStore("food");
+      return req(store.get(id)).then(function (entry) {
+        if (!entry) throw new Error("Запису немає");
+        var tags = tagsOf(entry).slice();
+        var at = tags.indexOf(tagId);
+        if (at === -1) tags.push(tagId); else tags.splice(at, 1);
+        entry.tags = tags;
+        entry.tag = mirrorTag(tags);
+        return req(store.put(entry)).then(function () { return entry; });
       });
     });
   }
@@ -657,7 +903,10 @@ var Hub = (function () {
       var store = transaction.objectStore("food");
       return req(store.get(id)).then(function (entry) {
         if (!entry) throw new Error("Запису немає");
-        if (patch.tag !== undefined) entry.tag = normalizeTag(patch.tag);
+        if (patch.tags !== undefined) {
+          entry.tags = patch.tags.slice();
+          entry.tag = mirrorTag(entry.tags);
+        }
         if (patch.note !== undefined) entry.note = String(patch.note).trim();
         return req(store.put(entry)).then(function () { return entry; });
       });
@@ -672,20 +921,30 @@ var Hub = (function () {
     });
   }
 
+  function avoidSet(tags) {
+    return new Set(tags.filter(function (t) { return t.avoid; }).map(function (t) { return t.id; }));
+  }
+
+  function hasAvoid(entry, avoid) {
+    return tagsOf(entry).some(function (id) { return avoid.has(id); });
+  }
+
   function feed(limit) {
-    return foodRows().then(function (rows) {
+    return Promise.all([foodRows(), getFoodTags()]).then(function (parts) {
+      var rows = parts[0];
+      var avoid = avoidSet(parts[1]);
       var slice = rows.slice(0, limit || 120);
       var groups = [];
       var index = {};
       slice.forEach(function (item) {
-        item.tagLabel = TAGS[item.tag] || "Без тегу";
+        item.tags = tagsOf(item);
         if (index[item.date] === undefined) {
           index[item.date] = groups.length;
-          groups.push({ date: item.date, items: [], sweets: 0 });
+          groups.push({ date: item.date, items: [], avoid: 0 });
         }
         var group = groups[index[item.date]];
         group.items.push(item);
-        if (item.tag === SWEET) group.sweets += 1;
+        if (hasAvoid(item, avoid)) group.avoid += 1;
       });
       return groups;
     });
@@ -695,21 +954,28 @@ var Hub = (function () {
     return foodRows().then(function (rows) { return rows.slice(0, limit || 6); });
   }
 
-  function sweetStreak(end) {
+  function avoidStreak(end) {
     var last = end || today();
-    return foodRows().then(function (rows) {
-      if (!rows.length) {
-        // Жодного запису — рахувати нічого, і «1 день» тут виглядало б обманом.
-        return { streak: 0, lastSweet: null, best: 0, untagged: 0 };
-      }
-      var sweetDays = new Set(rows.filter(function (r) { return r.tag === SWEET; })
+    return Promise.all([foodRows(), getFoodTags()]).then(function (parts) {
+      var rows = parts[0];
+      var tags = parts[1];
+      var avoid = avoidSet(tags);
+      var avoidTags = tags.filter(function (t) { return t.avoid; });
+      var base = {
+        streak: 0, last: null, best: 0, untagged: 0,
+        avoidNames: avoidTags.map(function (t) { return t.emoji + " " + t.name; }),
+        onlySweet: avoidTags.length === 1 && avoidTags[0].id === "sweet"
+      };
+      if (!rows.length || !avoid.size) return base;
+
+      var badDays = new Set(rows.filter(function (r) { return hasAvoid(r, avoid); })
         .map(function (r) { return r.date; }));
       var floor = rows[rows.length - 1].date;
 
       var count = 0;
       var cursor = last;
       while (cursor >= floor && count < 366) {
-        if (sweetDays.has(cursor)) break;
+        if (badDays.has(cursor)) break;
         count += 1;
         cursor = shift(cursor, -1);
       }
@@ -717,45 +983,44 @@ var Hub = (function () {
       var best = 0, current = 0;
       var walk = floor;
       while (walk <= last) {
-        if (sweetDays.has(walk)) current = 0;
+        if (badDays.has(walk)) current = 0;
         else { current += 1; best = Math.max(best, current); }
         walk = shift(walk, 1);
       }
 
-      var sorted = Array.from(sweetDays).sort();
-      return {
-        streak: count,
-        lastSweet: sorted.length ? sorted[sorted.length - 1] : null,
-        best: best,
-        untagged: rows.filter(function (r) { return !r.tag; }).length
-      };
+      var sorted = Array.from(badDays).sort();
+      base.streak = count;
+      base.best = best;
+      base.last = sorted.length ? sorted[sorted.length - 1] : null;
+      base.untagged = rows.filter(function (r) { return !tagsOf(r).length; }).length;
+      return base;
     });
   }
 
   function weeklyStats(weeks, end) {
     var last = end || today();
     var first = mondayOf(shift(last, -(weeks * 7 - 1)));
-    return foodRows().then(function (rows) {
+    return Promise.all([foodRows(), getFoodTags()]).then(function (parts) {
+      var rows = parts[0];
+      var avoid = avoidSet(parts[1]);
       var buckets = {};
       var cursor = first;
       while (cursor <= last) {
-        buckets[cursor] = { week: cursor, sweets: 0, total: 0, sweetDays: 0 };
+        buckets[cursor] = { week: cursor, avoid: 0, total: 0, avoidDays: 0 };
         cursor = shift(cursor, 7);
       }
-      var sweetDates = {};
+      var badDates = {};
       rows.forEach(function (row) {
         if (row.date < first || row.date > last) return;
         var week = mondayOf(row.date);
-        var bucket = buckets[week] || (buckets[week] = { week: week, sweets: 0, total: 0, sweetDays: 0 });
+        var bucket = buckets[week] || (buckets[week] = { week: week, avoid: 0, total: 0, avoidDays: 0 });
         bucket.total += 1;
-        if (row.tag === SWEET) {
-          bucket.sweets += 1;
-          (sweetDates[week] = sweetDates[week] || new Set()).add(row.date);
+        if (hasAvoid(row, avoid)) {
+          bucket.avoid += 1;
+          (badDates[week] = badDates[week] || new Set()).add(row.date);
         }
       });
-      Object.keys(sweetDates).forEach(function (week) {
-        buckets[week].sweetDays = sweetDates[week].size;
-      });
+      Object.keys(badDates).forEach(function (week) { buckets[week].avoidDays = badDates[week].size; });
       return Object.keys(buckets).sort().map(function (week) { return buckets[week]; });
     });
   }
@@ -763,14 +1028,26 @@ var Hub = (function () {
   function thisWeek(end) {
     var last = end || today();
     var monday = mondayOf(last);
-    return foodRows().then(function (rows) {
+    return Promise.all([foodRows(), getFoodTags()]).then(function (parts) {
+      var rows = parts[0];
+      var tags = parts[1];
+      var avoid = avoidSet(tags);
       var inWeek = rows.filter(function (r) { return r.date >= monday && r.date <= last; });
-      var sweets = inWeek.filter(function (r) { return r.tag === SWEET; });
+      var bad = inWeek.filter(function (r) { return hasAvoid(r, avoid); });
+      var byTag = tags.map(function (tag) {
+        var hits = inWeek.filter(function (r) { return tagsOf(r).indexOf(tag.id) !== -1; });
+        return {
+          id: tag.id, name: tag.name, emoji: tag.emoji, avoid: tag.avoid,
+          count: hits.length,
+          days: new Set(hits.map(function (r) { return r.date; })).size
+        };
+      });
       return {
         from: monday,
         photos: inWeek.length,
-        sweets: sweets.length,
-        sweetDays: new Set(sweets.map(function (r) { return r.date; })).size
+        avoid: bad.length,
+        avoidDays: new Set(bad.map(function (r) { return r.date; })).size,
+        byTag: byTag
       };
     });
   }
@@ -816,7 +1093,8 @@ var Hub = (function () {
           sleep: parts[2],
           food: food.map(function (item, index) {
             return {
-              ts: item.ts, date: item.date, tag: item.tag || null,
+              ts: item.ts, date: item.date,
+              tags: tagsOf(item), tag: item.tag || null,
               note: item.note || "", source: item.source || "",
               type: item.type || "image/jpeg",
               photo: urls[index]
@@ -866,12 +1144,13 @@ var Hub = (function () {
           note: night.note || ""
         };
         entry.duration = durationOf(entry.sleepTime, entry.wakeTime);
+        entry.naps = Array.isArray(night.naps) ? night.naps : [];
         sleepStore.put(entry);
         counts.sleep += 1;
       });
 
       var settings = data.settings || {};
-      Object.keys(DEFAULT_SETTINGS).forEach(function (key) {
+      Object.keys(DEFAULT_SETTINGS).concat(["foodTags"]).forEach(function (key) {
         if (settings[key] !== undefined) settingsStore.put({ key: key, value: settings[key] });
       });
 
@@ -897,12 +1176,14 @@ var Hub = (function () {
       var items = (data.food || []).filter(function (item) { return item.ts; });
       return items.reduce(function (chain, item) {
         return chain.then(function () {
+          var tags = Array.isArray(item.tags) ? item.tags : (item.tag ? [item.tag] : []);
           var entry = {
             ts: item.ts,
             date: item.date || item.ts.slice(0, 10),
             blob: item.photo ? dataUrlToBlob(item.photo) : null,
             type: item.type || "image/jpeg",
-            tag: item.tag || null,
+            tags: tags,
+            tag: mirrorTag(tags),
             note: item.note || "",
             source: item.source || "import"
           };
@@ -947,14 +1228,19 @@ var Hub = (function () {
     createTask: createTask, updateTask: updateTask, deleteTask: deleteTask,
     moveTask: moveTask, setDone: setDone,
     listTasks: listTasks, dayPlan: dayPlan, activeStreaks: activeStreaks,
-    history: history, logByDates: logByDates,
+    history: history, logByDates: logByDates, taskStats: taskStats,
     // сон
     markBed: markBed, markWake: markWake, saveNight: saveNight, deleteNight: deleteNight,
+    clearNight: clearNight, addNap: addNap, saveNap: saveNap, deleteNap: deleteNap,
+    napMinutes: napMinutes,
     nights: nights, sleepStats: sleepStats, weeklyAverage: weeklyAverage, advisor: advisor,
     nightDateOf: nightDateOf,
     // їжа
-    TAGS: TAGS, addPhoto: addPhoto, updateFood: updateFood, deleteFood: deleteFood,
-    feed: feed, latestFood: latestFood, sweetStreak: sweetStreak,
+    addPhoto: addPhoto, updateFood: updateFood, deleteFood: deleteFood,
+    setTags: setTags, toggleTag: toggleTag, tagsOf: tagsOf,
+    getFoodTags: getFoodTags, addFoodTag: addFoodTag,
+    updateFoodTag: updateFoodTag, deleteFoodTag: deleteFoodTag,
+    feed: feed, latestFood: latestFood, avoidStreak: avoidStreak,
     weeklyStats: weeklyStats, thisWeek: thisWeek,
     // спільне
     getSettings: getSettings, saveSettings: saveSettings,
