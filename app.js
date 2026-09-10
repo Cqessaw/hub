@@ -319,10 +319,6 @@
     return Hub.parseISO(key + "-01").toLocaleDateString("uk-UA", { month: "long" });
   }
 
-  function bucketNote(bucket) {
-    return "Стовпчик — " + (bucket === "day" ? "день" : bucket === "week" ? "тиждень" : "місяць") + ".";
-  }
-
   function bucketTitle(key, bucket, item) {
     var when = bucket === "day" ? humanDate(key)
       : bucket === "week" ? "тиждень з " + humanDate(key)
@@ -407,9 +403,6 @@
           title: bucketTitle(item.key, bucket, item)
         };
       }), { height: 170, unit: "count" });
-      $("#histChartHint").textContent = "Стовпчик — " +
-        (bucket === "day" ? "день" : bucket === "week" ? "тиждень" : "місяць") +
-        ". Жовтим — коли виконано менше, ніж було в плані.";
 
       renderHeatmap(heat);
 
@@ -510,8 +503,7 @@
           '<span class="tf"><input type="time" data-field="wakeTime" value="' + hhmm(night.wakeTime) + '">' +
             "<em>" + esc(sideDate(night.date, hhmm(night.wakeTime), "wake")) + "</em></span>" +
         "</span>" +
-        '<span class="stars" data-value="' + (night.quality || 0) +
-          '" title="Натисни ту саму зірку ще раз, щоб прибрати оцінку">' +
+        '<span class="stars" data-value="' + (night.quality || 0) + '">' +
           [1, 2, 3, 4, 5].map(function (n) {
             return '<button data-q="' + n + '" class="' + (night.quality >= n ? "on" : "") + '">★</button>';
           }).join("") + "</span>" +
@@ -602,9 +594,6 @@
           title: title
         };
       }), { goal: goal, height: 180 });
-      $("#sleepChartHint").textContent = bucketNote(bucket) +
-        (bucket === "day" ? "" : " Висота — середня ніч за цей час.") +
-        " Фіолетовим — дрімання, жовтим — коротка ніч.";
 
       var recent = nights.slice(-30).reverse();
       state.nightNotes = {};
@@ -648,8 +637,6 @@
           title: bucketWhen(item.key, bucket) + " · зривів " + item.done
         };
       }), { height: 150, unit: "count" });
-      $("#foodChartHint").textContent = bucketNote(bucket) +
-        " Висота — скільки разів траплялось те, чого уникаєш.";
 
       $("#foodTagStats").innerHTML = stats.byTag.length
         ? stats.byTag.map(function (tag) {

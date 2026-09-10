@@ -134,7 +134,6 @@ section[hidden]{display:none}
 .btn.ghost{background:transparent}
 .btn.danger{color:var(--red); border-color:var(--red-soft)}
 .btn.big-action{padding:16px 18px; border-radius:14px; font-size:16px; flex:1; text-align:left}
-.btn.big-action .sub{display:block; font-weight:500; font-size:12px; color:var(--text-faint); margin-top:2px}
 .btn:disabled{opacity:.5; cursor:default}
 
 input[type="text"], input[type="time"], input[type="number"], select, textarea{
