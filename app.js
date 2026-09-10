@@ -294,7 +294,18 @@
       $("#taskList").innerHTML = plan.tasks.length
         ? plan.tasks.map(function (t) { return taskRow(t); }).join("")
         : '<div class="empty">На цей день задач немає.</div>';
-      return renderHistory();
+
+      // Прихована задача інакше стає недосяжною: у списку дня її немає,
+      // а діалог редагування відкривається тільки звідти.
+      return Hub.listTasks(state.taskDay, true).then(function (all) {
+        var hidden = all.filter(function (t) { return t.active === false; });
+        $("#hiddenTasks").innerHTML = hidden.length
+          ? '<span class="muted">Приховані:</span>' + hidden.map(function (t) {
+              return '<button class="chip" data-edit="' + t.id + '">' + esc(t.name) + "</button>";
+            }).join("")
+          : "";
+        return renderHistory();
+      });
     });
   }
 
