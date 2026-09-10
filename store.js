@@ -13,7 +13,8 @@ var Hub = (function () {
     bedtime: "23:00",        // орієнтовний час лягати
     warnNights: 5,           // скільки останніх ночей дивиться помічник
     notifyBedtime: false,    // системне нагадування, коли застосунок відкритий
-    theme: ""                // "" = за системою
+    theme: "",               // "" = за системою
+    lastBackupAt: ""         // коли востаннє зберігали копію
   };
 
   // ── Дати ────────────────────────────────────────────────────────────────
@@ -395,6 +396,55 @@ var Hub = (function () {
         cursor = shift(cursor, 1);
       }
       return { from: first, to: last, days: out };
+    });
+  }
+
+  function perfectStreak(end) {
+    // День вважається ідеальним, коли виконано весь план на нього.
+    // Дні без плану пропускаємо — вони ні рвуть стрік, ні додають до нього.
+    var last = end || today();
+    return taskContext().then(function (ctx) {
+      var starts = {};
+      ctx.tasks.forEach(function (task) {
+        var created = String(task.createdAt || last).slice(0, 10);
+        var dates = ctx.doneByTask[task.id] || [];
+        starts[task.id] = dates.length && dates[0] < created ? dates[0] : created;
+      });
+
+      var allDates = Object.keys(ctx.doneByDate).sort();
+      if (!allDates.length) return { streak: 0, best: 0 };
+      var floor = allDates[0];
+
+      function dayState(iso) {
+        var planned = ctx.tasks.filter(function (task) {
+          return task.active !== false && isRecurring(task.rule) &&
+            isDue(task.rule, iso) && starts[task.id] <= iso;
+        });
+        if (!planned.length) return null;            // плану не було
+        var done = ctx.doneByDate[iso] || [];
+        return planned.every(function (task) { return done.indexOf(task.id) !== -1; });
+      }
+
+      var cursor = last;
+      if (dayState(cursor) === false) cursor = shift(cursor, -1);   // сьогодні ще попереду
+      var streak = 0;
+      while (cursor >= floor && streak < 3650) {
+        var state = dayState(cursor);
+        if (state === false) break;
+        if (state === true) streak += 1;
+        cursor = shift(cursor, -1);
+      }
+
+      var best = 0, current = 0;
+      var walk = floor;
+      while (walk <= last) {
+        var value = dayState(walk);
+        if (value === false) current = 0;
+        else if (value === true) { current += 1; best = Math.max(best, current); }
+        walk = shift(walk, 1);
+      }
+
+      return { streak: streak, best: Math.max(best, streak) };
     });
   }
 
@@ -1072,22 +1122,31 @@ var Hub = (function () {
     return new Blob([bytes], { type: mime });
   }
 
-  function exportAll(withPhotos) {
+  function exportAll(photoMode) {
+    // photoMode: "all" — усі фото, "none" — жодного, число — фото за стільки місяців.
+    var mode = photoMode === true ? "all" : (photoMode === false ? "none" : (photoMode || "all"));
+    var since = typeof mode === "number" ? shift(today(), -Math.round(mode * 30)) : null;
     return Promise.all([
       getAll("tasks"), getAll("taskLogs"), getAll("sleep"), foodRows(), getSettings()
     ]).then(function (parts) {
       var food = parts[3];
-      var photos = withPhotos
-        ? Promise.all(food.map(function (item) {
-            return item.blob ? blobToDataUrl(item.blob) : Promise.resolve(null);
-          }))
-        : Promise.resolve(food.map(function () { return null; }));
+      var wanted = function (item) {
+        if (mode === "none") return false;
+        if (since) return item.date >= since;
+        return true;
+      };
+      var photos = mode === "none"
+        ? Promise.resolve(food.map(function () { return null; }))
+        : Promise.all(food.map(function (item) {
+            return item.blob && wanted(item) ? blobToDataUrl(item.blob) : Promise.resolve(null);
+          }));
       return photos.then(function (urls) {
         return {
           app: "hub",
           version: 1,
           exportedAt: new Date().toISOString(),
-          withPhotos: !!withPhotos,
+          withPhotos: mode !== "none",
+          photoMode: mode,
           tasks: parts[0],
           taskLogs: parts[1],
           sleep: parts[2],
@@ -1229,6 +1288,7 @@ var Hub = (function () {
     moveTask: moveTask, setDone: setDone,
     listTasks: listTasks, dayPlan: dayPlan, activeStreaks: activeStreaks,
     history: history, logByDates: logByDates, taskStats: taskStats,
+    perfectStreak: perfectStreak,
     // сон
     markBed: markBed, markWake: markWake, saveNight: saveNight, deleteNight: deleteNight,
     clearNight: clearNight, addNap: addNap, saveNap: saveNap, deleteNap: deleteNap,

@@ -374,3 +374,12 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
   padding:5px 0; width:34px; text-align:center; font-size:15px; line-height:1.1;
 }
 .tag-names{font-size:11px; line-height:1.3}
+
+/* Посилання-кнопка всередині банера — без власного «кнопкового» вигляду. */
+.link-btn{
+  background:none; border:none; padding:0; cursor:pointer;
+  color:var(--accent-ink); font-weight:700; text-decoration:underline;
+}
+.night-note{margin:6px 0 0 74px; font-size:13px}
+textarea{min-height:72px; resize:vertical; font-size:16px}
+@media (max-width:600px){ .night-note{margin-left:0} }

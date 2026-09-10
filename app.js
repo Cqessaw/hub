@@ -21,7 +21,11 @@
     histDays: 84,
     histTask: null,
     histExpanded: false,
-    foodTags: []
+    foodTags: [],
+    foodFilter: null,
+    foodNotes: {},
+    nightNotes: {},
+    noteTarget: null
   };
 
   // ── Дрібні помічники ──────────────────────────────────────────────────
@@ -180,10 +184,12 @@
   function renderOverview() {
     return Promise.all([
       Hub.dayPlan(), Hub.activeStreaks(), Hub.nights(7), Hub.sleepStats(7),
-      Hub.advisor(), Hub.avoidStreak(), Hub.thisWeek(), Hub.latestFood(6)
+      Hub.advisor(), Hub.avoidStreak(), Hub.thisWeek(), Hub.latestFood(6),
+      Hub.perfectStreak(), Hub.getSettings()
     ]).then(function (r) {
       var plan = r[0], streaks = r[1], week = r[2], sleepStats = r[3];
       var advice = r[4], sweet = r[5], foodWeek = r[6], latest = r[7];
+      var perfect = r[8], settings = r[9];
 
       $("#ovTasksCount").innerHTML = plan.done + "<small>з " + plan.total + "</small>";
       $("#ovTasksHint").textContent = plan.total === 0
@@ -196,8 +202,14 @@
         : '<div class="empty">Порожньо — і це добре.</div>';
 
       var hot = streaks.filter(function (s) { return s.streak > 0; }).slice(0, 6);
-      $("#ovStreaks").innerHTML = hot.length
-        ? hot.map(function (s) {
+      // Ідеальні дні — це про день загалом, тому стоять першими.
+      var perfectLine = perfect.streak
+        ? '<div class="list-line"><span><b>Ідеальні дні</b> <span class="muted">· весь план</span></span>' +
+          '<span class="pill accent">' + perfect.streak + " " +
+          plural(perfect.streak, "день", "дні", "днів") + "</span></div>"
+        : "";
+      $("#ovStreaks").innerHTML = (perfectLine || hot.length)
+        ? perfectLine + hot.map(function (s) {
             return '<div class="list-line"><span>' + esc(s.name) +
               ' <span class="muted">· ' + esc(s.ruleLabel) + "</span></span>" +
               '<span class="pill">' + s.streak + " " + plural(s.streak, "день", "дні", "днів") + "</span></div>";
@@ -210,11 +222,14 @@
         ? "норма " + Hub.fmtMinutes(goal) + " · ночей у вибірці: " + sleepStats.nights
         : "натисни «Ліг спати» на вкладці «Сон»";
       $("#ovSleepChart").innerHTML = barChart(week.map(function (n) {
+        var title = humanDate(n.date) + " · " + Hub.fmtMinutes(n.duration);
+        if (n.napMinutes) title += " + дрімання " + Hub.fmtMinutes(n.napMinutes);
         return {
           label: DOW[dowIndex(n.date)],
           value: n.duration || 0,
+          extra: n.napMinutes || 0,
           short: n.duration && n.duration < goal - 20,
-          title: humanDate(n.date) + " · " + Hub.fmtMinutes(n.duration)
+          title: title
         };
       }), { goal: goal, height: 150, labelEvery: 1 });
 
@@ -241,7 +256,16 @@
       if (sweet.untagged) {
         banners.push('<div class="banner calm"><span class="ico">🍽</span><span>' + sweet.untagged +
           " " + plural(sweet.untagged, "фото чекає", "фото чекають", "фото чекають") +
-          " на тег — вкладка «Їжа».</span></div>");
+          " на категорію — вкладка «Їжа».</span></div>");
+      }
+      var hasData = plan.total || latest.length || sleepStats.nights;
+      var stale = backupAge(settings.lastBackupAt);
+      if (hasData && (stale === null || stale >= 14)) {
+        banners.push('<div class="banner warn"><span class="ico">💾</span><span>' +
+          (stale === null
+            ? "Копії ще не було — дані живуть лише на цьому телефоні."
+            : "Останню копію робив " + stale + " " + plural(stale, "день", "дні", "днів") + " тому.") +
+          ' <button class="link-btn" data-open-settings>Зберегти зараз</button></span></div>');
       }
       $("#overviewBanners").innerHTML = banners.join("");
     });
@@ -395,8 +419,10 @@
           [1, 2, 3, 4, 5].map(function (n) {
             return '<button data-q="' + n + '" class="' + (night.quality >= n ? "on" : "") + '">★</button>';
           }).join("") + "</span>" +
+        '<button class="icon-btn tiny" data-note-night title="Нотатка" aria-label="Нотатка">✎</button>' +
         '<button class="icon-btn tiny" data-clear-night title="Прибрати години сну" aria-label="Прибрати години сну">✕</button>' +
       "</div>" +
+      (night.note ? '<div class="night-note muted">' + esc(night.note) + "</div>" : "") +
       '<div class="naps">' +
         naps.map(napRow).join("") +
         '<button class="btn ghost nap-add" data-add-nap>＋ дрімання</button>' +
@@ -460,7 +486,10 @@
             monthStats.napDays + " " + plural(monthStats.napDays, "день", "дні", "днів") + "</span>"
           : "");
 
-      $("#sleepTable").innerHTML = nights.slice(-14).reverse().map(nightRow).join("");
+      var recent = nights.slice(-14).reverse();
+      state.nightNotes = {};
+      recent.forEach(function (night) { state.nightNotes[night.date] = night.note || ""; });
+      $("#sleepTable").innerHTML = recent.map(nightRow).join("");
     });
   }
 
@@ -472,6 +501,31 @@
     ]).then(function (r) {
       var feed = r[0], streak = r[1], week = r[2], weekly = r[3], tags = r[4];
       state.foodTags = tags;
+      state.foodNotes = {};
+      feed.forEach(function (day) {
+        day.items.forEach(function (item) { state.foodNotes[item.id] = item.note || ""; });
+      });
+      // Фільтр показуємо лише тоді, коли є що фільтрувати.
+      var filterBox = $("#foodFilter");
+      filterBox.hidden = !feed.length;
+      filterBox.innerHTML = '<button class="chip" data-food-filter="" aria-pressed="' +
+        (state.foodFilter === null) + '">Усі</button>' +
+        tags.map(function (tag) {
+          return '<button class="chip" data-food-filter="' + tag.id + '" aria-pressed="' +
+            (state.foodFilter === tag.id) + '">' + tag.emoji + " " + esc(tag.name) + "</button>";
+        }).join("");
+
+      var shown = state.foodFilter
+        ? feed.map(function (day) {
+            return {
+              date: day.date,
+              avoid: day.avoid,
+              items: day.items.filter(function (item) {
+                return (item.tags || []).indexOf(state.foodFilter) !== -1;
+              })
+            };
+          }).filter(function (day) { return day.items.length; })
+        : feed;
 
       $("#foodStreakTitle").textContent = streak.onlySweet ? "Без солодкого" : "Без зривів";
       $("#foodStreak").innerHTML = streak.streak + "<small>" +
@@ -504,8 +558,8 @@
         };
       }), { height: 150, unit: "count" });
 
-      $("#foodFeed").innerHTML = feed.length
-        ? feed.map(function (day) {
+      $("#foodFeed").innerHTML = shown.length
+        ? shown.map(function (day) {
             return '<div class="feed-day"><h3>' +
               esc(humanDate(day.date, { day: "numeric", month: "long", weekday: "short" })) +
               ' <span class="muted">' + day.items.length + " " + plural(day.items.length, "фото", "фото", "фото") +
@@ -514,7 +568,10 @@
                 return shotCard(item, tags);
               }).join("") + "</div></div>";
           }).join("")
-        : '<div class="card"><div class="empty">Фото ще немає.<br>Натисни «Сфотографувати їжу» — знімок одразу потрапить у стрічку.</div></div>';
+        : '<div class="card"><div class="empty">' + (feed.length
+            ? "У цій категорії фото немає."
+            : "Фото ще немає.<br>Натисни «Сфотографувати їжу» — знімок одразу потрапить у стрічку.") +
+          "</div></div>";
       prunePhotoUrls();
     });
   }
@@ -535,6 +592,7 @@
       '<div class="info"><span class="time">' + esc(item.ts.slice(11, 16)) +
       (item.note ? " · " + esc(item.note) : "") + "</span>" +
       '<div class="tagline">' + chips +
+        '<button class="tagbtn icon ghost" data-note title="Нотатка" aria-label="Нотатка">✎</button>' +
         '<button class="tagbtn icon ghost" data-tags-edit="1" title="Налаштувати категорії">＋</button>' +
         '<button class="tagbtn icon ghost" data-drop="1" title="Видалити" aria-label="Видалити">🗑</button>' +
       "</div>" +
@@ -592,6 +650,12 @@
         : persisted
           ? "Сховище захищене: браузер не почистить дані сам."
           : "Браузер не дав захист сховища — копії тут особливо важливі.";
+      $("#backupPhotos").value = settings.backupPhotos || "3";
+      var age = backupAge(settings.lastBackupAt);
+      $("#backupLine").textContent = age === null
+        ? "Копії ще не було."
+        : "Остання копія: " + humanDate(settings.lastBackupAt.slice(0, 10)) +
+          (age ? " (" + age + " " + plural(age, "день", "дні", "днів") + " тому)" : " (сьогодні)");
       $("#shareBtn").hidden = !canShareFiles();
       $("#settingsDialog").showModal();
     });
@@ -632,14 +696,33 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  function backupName(withPhotos) {
-    return "hub-" + Hub.today() + (withPhotos ? "" : "-без-фото") + ".json";
+  function backupAge(iso) {
+    if (!iso) return null;
+    var days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    return days < 0 ? 0 : days;
   }
 
-  function exportBackup(withPhotos) {
+  function backupMode() {
+    var value = ($("#backupPhotos") || {}).value || "3";
+    return (value === "all" || value === "none") ? value : Number(value);
+  }
+
+  function backupName(mode) {
+    var suffix = mode === "none" ? "-без-фото" : (mode === "all" ? "" : "-фото-" + mode + "міс");
+    return "hub-" + Hub.today() + suffix + ".json";
+  }
+
+  function markBackupDone() {
+    return Hub.saveSettings({ lastBackupAt: new Date().toISOString() });
+  }
+
+  function exportBackup() {
+    var mode = backupMode();
     toast("Готую копію…");
-    return Hub.exportAll(withPhotos).then(function (data) {
-      download(backupName(withPhotos), JSON.stringify(data));
+    return Hub.exportAll(mode).then(function (data) {
+      download(backupName(mode), JSON.stringify(data));
+      return markBackupDone();
+    }).then(function () {
       toast("Копію збережено");
     }).catch(fail);
   }
@@ -655,10 +738,11 @@
 
   function shareBackup() {
     // На телефоні зручніше відправити копію собі в месенджер, ніж шукати теку завантажень.
+    var mode = backupMode();
     toast("Готую копію…");
-    return Hub.exportAll(true).then(function (data) {
-      var file = new File([JSON.stringify(data)], backupName(true), { type: "application/json" });
-      return navigator.share({ files: [file], title: "Копія Хабу" });
+    return Hub.exportAll(mode).then(function (data) {
+      var file = new File([JSON.stringify(data)], backupName(mode), { type: "application/json" });
+      return navigator.share({ files: [file], title: "Копія Хабу" }).then(markBackupDone);
     }).then(function () {
       toast("Надіслано");
     }).catch(function (error) {
@@ -681,6 +765,30 @@
       }).catch(fail);
     };
     reader.readAsText(file);
+  }
+
+  // ── Нотатки ───────────────────────────────────────────────────────────
+
+  function openNote(kind, key, title) {
+    var current = kind === "food" ? state.foodNotes[key] : state.nightNotes[key];
+    state.noteTarget = { kind: kind, key: key };
+    $("#noteTitle").textContent = title;
+    $("#noteText").value = current || "";
+    $("#noteDialog").showModal();
+    setTimeout(function () { $("#noteText").focus(); }, 60);
+  }
+
+  function saveNote() {
+    var target = state.noteTarget;
+    if (!target) return Promise.resolve();
+    var text = $("#noteText").value;
+    var job = target.kind === "food"
+      ? Hub.updateFood(target.key, { note: text }).then(renderFood)
+      : Hub.saveNight(target.key, { note: text }).then(renderSleep);
+    return job.then(function () {
+      $("#noteDialog").close();
+      state.noteTarget = null;
+    }).catch(fail);
   }
 
   // ── Діалог задачі ─────────────────────────────────────────────────────
@@ -819,8 +927,15 @@
     $("#settingsBtn").addEventListener("click", function () { openSettings().catch(fail); });
     $("#setClose").addEventListener("click", function () { saveSettingsFromForm(); });
     $("#shareBtn").addEventListener("click", function () { shareBackup(); });
-    $("#exportBtn").addEventListener("click", function () { exportBackup(true); });
-    $("#exportLightBtn").addEventListener("click", function () { exportBackup(false); });
+    $("#exportBtn").addEventListener("click", function () { exportBackup(); });
+    $("#backupPhotos").addEventListener("change", function () {
+      Hub.saveSettings({ backupPhotos: $("#backupPhotos").value }).catch(function () { /* дрібниця */ });
+    });
+    $("#noteCancel").addEventListener("click", function () {
+      $("#noteDialog").close();
+      state.noteTarget = null;
+    });
+    $("#noteSave").addEventListener("click", function () { saveNote(); });
     $("#importBtn").addEventListener("click", function () { $("#importFile").click(); });
     $("#importFile").addEventListener("change", function (event) {
       var file = event.target.files[0];
@@ -911,6 +1026,34 @@
       if (dropButton) {
         if (!confirm("Видалити це фото?")) return;
         Hub.deleteFood(Number(dropButton.closest(".shot").dataset.food)).then(renderFood).catch(fail);
+        return;
+      }
+
+      var openSettings2 = event.target.closest("[data-open-settings]");
+      if (openSettings2) {
+        openSettings().catch(fail);
+        return;
+      }
+
+      var foodChip = event.target.closest("[data-food-filter]");
+      if (foodChip) {
+        var value = foodChip.dataset.foodFilter;
+        state.foodFilter = value || null;
+        renderFood().catch(fail);
+        return;
+      }
+
+      var noteBtn = event.target.closest("[data-note]");
+      if (noteBtn) {
+        var shot = noteBtn.closest(".shot");
+        openNote("food", Number(shot.dataset.food), "Нотатка до знімка");
+        return;
+      }
+
+      var nightNote = event.target.closest("[data-note-night]");
+      if (nightNote) {
+        var noteNight = nightNote.closest("[data-night]").dataset.night;
+        openNote("night", noteNight, "Нотатка про ніч " + humanDate(noteNight));
         return;
       }
 

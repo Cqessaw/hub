@@ -223,6 +223,7 @@
       <button class="btn" id="foodPick">Вибрати з галереї</button>
     </div>
 
+    <div class="wrap-row filter-row" id="foodFilter" style="margin-bottom:14px"></div>
     <div id="foodFeed"></div>
   </section>
 
@@ -250,14 +251,23 @@
   </div>
 
   <h3 class="dialog-sub">Дані</h3>
+  <div style="margin-bottom:10px">
+    <label class="field" for="backupPhotos">Фото в копії</label>
+    <select id="backupPhotos">
+      <option value="3">За останні 3 місяці</option>
+      <option value="12">За останній рік</option>
+      <option value="all">Усі</option>
+      <option value="none">Без фото</option>
+    </select>
+  </div>
   <div class="wrap-row">
     <button class="btn primary" id="shareBtn" hidden>Надіслати копію</button>
     <button class="btn" id="exportBtn">Зберегти копію</button>
-    <button class="btn" id="exportLightBtn">Копія без фото</button>
     <button class="btn" id="importBtn">Відновити з копії</button>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </div>
-  <div class="muted" id="usageLine" style="margin-top:10px"></div>
+  <div class="muted" id="backupLine" style="margin-top:10px"></div>
+  <div class="muted" id="usageLine" style="margin-top:4px"></div>
   <div class="muted" id="persistLine" style="margin-top:4px"></div>
   <div class="muted" style="margin-top:6px">
     Дані лежать лише на цьому пристрої. Час від часу надсилай копію собі — у Telegram
@@ -267,6 +277,15 @@
 
   <div class="wrap-row" style="justify-content:flex-end; margin-top:16px">
     <button class="btn primary" id="setClose">Готово</button>
+  </div>
+</dialog>
+
+<dialog id="noteDialog">
+  <h2 class="dialog-title" id="noteTitle">Нотатка</h2>
+  <textarea id="noteText" rows="3" placeholder="Коротко: що це було, з ким, як почувався"></textarea>
+  <div class="wrap-row" style="justify-content:flex-end; margin-top:14px">
+    <button class="btn ghost" id="noteCancel">Скасувати</button>
+    <button class="btn primary" id="noteSave">Зберегти</button>
   </div>
 </dialog>
 
