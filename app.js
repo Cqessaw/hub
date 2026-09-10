@@ -15,6 +15,7 @@
     sleepDays: 30,
     foodDays: 30,
     openNight: null,
+    foodLimit: 120,
     newTaskDays: new Set([1, 3, 5]),
     editDays: new Set(),
     editing: null,
@@ -187,11 +188,11 @@
     return Promise.all([
       Hub.dayPlan(), Hub.activeStreaks(), Hub.nights(7), Hub.sleepStats(7),
       Hub.advisor(), Hub.avoidStreak(), Hub.thisWeek(), Hub.latestFood(6),
-      Hub.perfectStreak(), Hub.getSettings()
+      Hub.perfectStreak(), Hub.getSettings(), Hub.insights(90)
     ]).then(function (r) {
       var plan = r[0], streaks = r[1], week = r[2], sleepStats = r[3];
       var advice = r[4], sweet = r[5], foodWeek = r[6], latest = r[7];
-      var perfect = r[8], settings = r[9];
+      var perfect = r[8], settings = r[9], links = r[10];
 
       $("#ovTasksCount").innerHTML = plan.done + "<small>з " + plan.total + "</small>";
       $("#ovTasksHint").textContent = plan.total === 0
@@ -260,6 +261,8 @@
           " " + plural(sweet.untagged, "фото чекає", "фото чекають", "фото чекають") +
           " на категорію — вкладка «Їжа».</span></div>");
       }
+      renderInsights(links);
+
       var hasData = plan.total || latest.length || sleepStats.nights;
       var stale = backupAge(settings.lastBackupAt);
       if (hasData && (stale === null || stale >= 14)) {
@@ -273,6 +276,43 @@
     });
   }
 
+  function insightText(fact) {
+    if (fact.id === "sleep-tasks") {
+      return "Після ночей коротших за " + Hub.fmtMinutes(fact.goal - 30) + " план виконуєш на <b>" +
+        fact.shortValue + "%</b>, після довших — на <b>" + fact.longValue + "%</b>.";
+    }
+    if (fact.id === "sleep-food") {
+      return "Після коротких ночей зриви з їжею у <b>" + fact.shortValue +
+        "%</b> днів, після нормальних — у <b>" + fact.longValue + "%</b>.";
+    }
+    if (fact.id === "sleep-energy") {
+      return "Після коротких ночей день оцінюєш на <b>" + fact.shortValue +
+        "</b>, після нормальних — на <b>" + fact.longValue + "</b>.";
+    }
+    if (fact.id === "tasks-energy") {
+      return "У дні з повністю виконаним планом оцінка дня <b>" + fact.fullValue +
+        "</b>, інакше — <b>" + fact.partValue + "</b>.";
+    }
+    if (fact.id === "energy-sleep") {
+      return "Перед найкращими днями спав <b>" + Hub.fmtMinutes(fact.goodValue) +
+        "</b>, перед найгіршими — <b>" + Hub.fmtMinutes(fact.badValue) + "</b>.";
+    }
+    return "";
+  }
+
+  function renderInsights(links) {
+    // Картка з'являється лише тоді, коли даних вистачає на висновок.
+    var card = $("#insightsCard");
+    if (!links || !links.facts.length) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+    $("#insightsList").innerHTML = links.facts.slice(0, 3).map(function (fact) {
+      return '<div class="insight">' + insightText(fact) + "</div>";
+    }).join("");
+  }
+
   // ── Задачі ────────────────────────────────────────────────────────────
 
   function renderTasks() {
@@ -282,6 +322,7 @@
         ? "Сьогодні · " + humanDate(state.taskDay)
         : DOW[dowIndex(state.taskDay)] + ", " + humanDate(state.taskDay);
       $("#dayToday").hidden = isToday;
+      $("#taskDatePick").value = state.taskDay;
 
       var full = plan.total && plan.done === plan.total;
       $("#dayProgress").style.width = (plan.total ? Math.round(plan.done / plan.total * 100) : 0) + "%";
@@ -304,6 +345,13 @@
               return '<button class="chip" data-edit="' + t.id + '">' + esc(t.name) + "</button>";
             }).join("")
           : "";
+        return Hub.dayRating(state.taskDay);
+      }).then(function (energy) {
+        $("#dayRate").innerHTML = '<span class="muted">Як день?</span>' +
+          [1, 2, 3, 4, 5].map(function (n) {
+            return '<button class="rate' + (energy === n ? " on" : "") + '" data-rate="' + n +
+              '" aria-pressed="' + (energy === n) + '">' + n + "</button>";
+          }).join("");
         return renderHistory();
       });
     });
@@ -619,7 +667,7 @@
     var days = state.foodDays;
     var bucket = BUCKETS[days] || "week";
     return Promise.all([
-      Hub.feed(120), Hub.avoidStreak(), Hub.foodStats(days), Hub.getFoodTags()
+      Hub.feed(state.foodLimit), Hub.avoidStreak(), Hub.foodStats(days), Hub.getFoodTags()
     ]).then(function (r) {
       var feed = r[0], streak = r[1], stats = r[2], tags = r[3];
       state.foodTags = tags;
@@ -658,7 +706,7 @@
         : '<span class="muted">Категорій немає.</span>';
 
       var filterBox = $("#foodFilter");
-      filterBox.hidden = !feed.length;
+      $("#foodFilterWrap").hidden = !feed.length;
       filterBox.innerHTML = '<button class="chip" data-food-filter="" aria-pressed="' +
         (state.foodFilter === null) + '">Усі</button>' +
         tags.map(function (tag) {
@@ -680,7 +728,7 @@
 
       $("#foodFeed").innerHTML = shown.length
         ? shown.map(function (day) {
-            return '<div class="feed-day"><h3>' +
+            return '<div class="feed-day" data-date="' + day.date + '"><h3>' +
               esc(humanDate(day.date, { day: "numeric", month: "long", weekday: "short" })) +
               ' <span class="muted">' + day.items.length + " " + plural(day.items.length, "фото", "фото", "фото") +
               (day.avoid ? " · зривів " + day.avoid : "") + "</span></h3>" +
@@ -694,6 +742,24 @@
           "</div></div>";
       prunePhotoUrls();
     });
+  }
+
+  function jumpToFoodDate(date) {
+    function scroll() {
+      var el = document.querySelector('.feed-day[data-date="' + date + '"]');
+      if (!el) return false;
+      // Позицію рахуємо самі: плавне гортання подекуди просто не спрацьовує,
+      // а відступ прибирає день з-під липкої шапки.
+      var top = el.getBoundingClientRect().top + window.scrollY - 76;
+      window.scrollTo(0, Math.max(0, top));
+      return true;
+    }
+    if (scroll()) return Promise.resolve();
+    // Дня ще немає в завантаженій частині стрічки — беремо ширший шматок.
+    state.foodLimit += 400;
+    return renderFood().then(function () {
+      if (!scroll()) toast("За цю дату фото немає");
+    }).catch(fail);
   }
 
   function shotCard(item, tags) {
@@ -1177,6 +1243,16 @@
         return;
       }
 
+      var rate = event.target.closest("[data-rate]");
+      if (rate) {
+        var picked = Number(rate.dataset.rate);
+        var same = rate.getAttribute("aria-pressed") === "true";
+        Hub.rateDay(state.taskDay, same ? 0 : picked).then(function () {
+          return refresh();
+        }).catch(fail);
+        return;
+      }
+
       var histChip = event.target.closest("[data-hist]");
       if (histChip) {
         var raw = histChip.dataset.hist;
@@ -1310,6 +1386,16 @@
     });
     $("#newTaskRule").addEventListener("change", function () {
       $("#newTaskDays").hidden = $("#newTaskRule").value !== "days";
+    });
+
+    $("#taskDatePick").addEventListener("change", function () {
+      if (!this.value) return;
+      state.taskDay = this.value;
+      renderTasks().catch(fail);
+    });
+
+    $("#foodDatePick").addEventListener("change", function () {
+      if (this.value) jumpToFoodDate(this.value);
     });
 
     $("#dayPrev").addEventListener("click", function () {

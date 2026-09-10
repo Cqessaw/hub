@@ -5,7 +5,7 @@ var Hub = (function () {
   "use strict";
 
   var DB_NAME = "hub";
-  var DB_VERSION = 2;
+  var DB_VERSION = 3;
   var dbPromise = null;
 
   var DEFAULT_SETTINGS = {
@@ -82,6 +82,9 @@ var Hub = (function () {
         }
         if (!db.objectStoreNames.contains("photos")) {
           db.createObjectStore("photos", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("days")) {
+          db.createObjectStore("days", { keyPath: "date" });
         }
         if (event.oldVersion < 2) {
           // Раніше знімок лежав в одному записі з тегами, і будь-яка зміна тегу
@@ -538,6 +541,34 @@ var Hub = (function () {
         firstDone: dates.length ? dates[0] : null
       };
     });
+  }
+
+  // ── Оцінка дня ──────────────────────────────────────────────────────────
+
+  function rateDay(date, energy) {
+    var value = Math.max(0, Math.min(5, Number(energy) || 0));
+    if (!value) return remove("days", date).then(function () { return null; });
+    return put("days", { date: date, energy: value }).then(function () {
+      return { date: date, energy: value };
+    });
+  }
+
+  function dayRatings(days, end) {
+    var last = end || today();
+    var first = shift(last, -(days - 1));
+    return getAll("days").then(function (rows) {
+      var byDate = {};
+      rows.forEach(function (row) {
+        if (row.date >= first && row.date <= last) byDate[row.date] = row.energy;
+      });
+      return byDate;
+    });
+  }
+
+  function dayRating(date) {
+    return open().then(function (db) {
+      return req(db.transaction("days", "readonly").objectStore("days").get(date));
+    }).then(function (row) { return row ? row.energy : 0; });
   }
 
   // ── Модуль 2: сон ───────────────────────────────────────────────────────
@@ -1220,6 +1251,129 @@ var Hub = (function () {
     });
   }
 
+  // ── Зв'язки між модулями ────────────────────────────────────────────────
+
+  function average(values) {
+    if (!values.length) return null;
+    return values.reduce(function (a, b) { return a + b; }, 0) / values.length;
+  }
+
+  function insights(days, end) {
+    // Складаємо таблицю «день → ніч перед ним, план, зриви, оцінка» і шукаємо
+    // різницю між днями після коротких і нормальних ночей.
+    var last = end || today();
+    var first = shift(last, -(days - 1));
+    return Promise.all([
+      nights(days + 1, last), history(days, last), foodStats(days, last),
+      dayRatings(days, last), getSettings()
+    ]).then(function (parts) {
+      var nightByDate = {};
+      parts[0].forEach(function (night) { nightByDate[night.date] = night; });
+      var planByDate = {};
+      parts[1].days.forEach(function (day) { planByDate[day.date] = day; });
+      var foodByDate = {};
+      parts[2].days.forEach(function (day) { foodByDate[day.date] = day; });
+      var energyByDate = parts[3];
+      var goal = Math.max(60, Number(parts[4].sleepGoalMinutes) || 480);
+      var shortNight = goal - 30;
+
+      var rows = [];
+      var cursor = first;
+      while (cursor <= last) {
+        var prev = nightByDate[shift(cursor, -1)];
+        var plan = planByDate[cursor];
+        var food = foodByDate[cursor];
+        rows.push({
+          date: cursor,
+          slept: prev && prev.duration ? prev.duration : null,
+          adherence: plan && plan.planned ? plan.done / plan.planned : null,
+          avoid: food ? food.avoid > 0 : null,
+          logged: food ? food.photos > 0 : false,
+          energy: energyByDate[cursor] || null
+        });
+        cursor = shift(cursor, 1);
+      }
+
+      var withSleep = rows.filter(function (row) { return row.slept; });
+      var shortDays = withSleep.filter(function (row) { return row.slept < shortNight; });
+      var longDays = withSleep.filter(function (row) { return row.slept >= shortNight; });
+      var facts = [];
+      var MIN = 5;
+
+      function pick(list, field) {
+        return list.map(function (row) { return row[field]; })
+          .filter(function (value) { return value !== null && value !== undefined; });
+      }
+
+      if (shortDays.length >= MIN && longDays.length >= MIN) {
+        var shortPlan = pick(shortDays, "adherence");
+        var longPlan = pick(longDays, "adherence");
+        if (shortPlan.length >= MIN && longPlan.length >= MIN) {
+          var a = Math.round(average(shortPlan) * 100);
+          var b = Math.round(average(longPlan) * 100);
+          if (Math.abs(a - b) >= 8) {
+            facts.push({ id: "sleep-tasks", shortValue: a, longValue: b,
+                         shortDays: shortPlan.length, longDays: longPlan.length, goal: goal });
+          }
+        }
+
+        var shortFood = shortDays.filter(function (row) { return row.logged; });
+        var longFood = longDays.filter(function (row) { return row.logged; });
+        if (shortFood.length >= MIN && longFood.length >= MIN) {
+          var fa = Math.round(shortFood.filter(function (r) { return r.avoid; }).length / shortFood.length * 100);
+          var fb = Math.round(longFood.filter(function (r) { return r.avoid; }).length / longFood.length * 100);
+          if (Math.abs(fa - fb) >= 10) {
+            facts.push({ id: "sleep-food", shortValue: fa, longValue: fb,
+                         shortDays: shortFood.length, longDays: longFood.length });
+          }
+        }
+
+        var shortEnergy = pick(shortDays, "energy");
+        var longEnergy = pick(longDays, "energy");
+        if (shortEnergy.length >= MIN && longEnergy.length >= MIN) {
+          var ea = Math.round(average(shortEnergy) * 10) / 10;
+          var eb = Math.round(average(longEnergy) * 10) / 10;
+          if (Math.abs(ea - eb) >= 0.4) {
+            facts.push({ id: "sleep-energy", shortValue: ea, longValue: eb,
+                         shortDays: shortEnergy.length, longDays: longEnergy.length });
+          }
+        }
+      }
+
+      // Оцінка дня проти виконання плану.
+      var rated = rows.filter(function (row) { return row.energy && row.adherence !== null; });
+      var fullPlan = rated.filter(function (row) { return row.adherence >= 1; });
+      var partPlan = rated.filter(function (row) { return row.adherence < 1; });
+      if (fullPlan.length >= MIN && partPlan.length >= MIN) {
+        var pa = Math.round(average(pick(fullPlan, "energy")) * 10) / 10;
+        var pb = Math.round(average(pick(partPlan, "energy")) * 10) / 10;
+        if (Math.abs(pa - pb) >= 0.4) {
+          facts.push({ id: "tasks-energy", fullValue: pa, partValue: pb,
+                       fullDays: fullPlan.length, partDays: partPlan.length });
+        }
+      }
+
+      // Скільки спав перед найкращими і найгіршими днями.
+      var good = rows.filter(function (row) { return row.energy >= 4 && row.slept; });
+      var bad = rows.filter(function (row) { return row.energy && row.energy <= 2 && row.slept; });
+      if (good.length >= MIN && bad.length >= MIN) {
+        var ga = Math.round(average(pick(good, "slept")));
+        var gb = Math.round(average(pick(bad, "slept")));
+        if (Math.abs(ga - gb) >= 20) {
+          facts.push({ id: "energy-sleep", goodValue: ga, badValue: gb,
+                       goodDays: good.length, badDays: bad.length });
+        }
+      }
+
+      return {
+        from: first, to: last,
+        nights: withSleep.length,
+        rated: rows.filter(function (row) { return row.energy; }).length,
+        facts: facts
+      };
+    });
+  }
+
   // ── Резервна копія ──────────────────────────────────────────────────────
 
   function blobToDataUrl(blob) {
@@ -1245,7 +1399,7 @@ var Hub = (function () {
     var mode = photoMode === true ? "all" : (photoMode === false ? "none" : (photoMode || "all"));
     var since = typeof mode === "number" ? shift(today(), -Math.round(mode * 30)) : null;
     return Promise.all([
-      getAll("tasks"), getAll("taskLogs"), getAll("sleep"), foodRows(), getSettings()
+      getAll("tasks"), getAll("taskLogs"), getAll("sleep"), foodRows(), getSettings(), getAll("days")
     ]).then(function (parts) {
       var food = parts[3];
       var wanted = function (item) {
@@ -1270,6 +1424,7 @@ var Hub = (function () {
           tasks: parts[0],
           taskLogs: parts[1],
           sleep: parts[2],
+          dayRatings: parts[5],
           food: food.map(function (item, index) {
             return {
               ts: item.ts, date: item.date,
@@ -1292,7 +1447,7 @@ var Hub = (function () {
 
     return open().then(function (db) {
       // Крок 1: задачі. Треба дочекатись, поки база роздасть їм нові id.
-      var first = db.transaction(["tasks", "sleep", "settings"], "readwrite");
+      var first = db.transaction(["tasks", "sleep", "settings", "days"], "readwrite");
       var tasks = first.objectStore("tasks");
       var sleepStore = first.objectStore("sleep");
       var settingsStore = first.objectStore("settings");
@@ -1326,6 +1481,10 @@ var Hub = (function () {
         entry.naps = Array.isArray(night.naps) ? night.naps : [];
         sleepStore.put(entry);
         counts.sleep += 1;
+      });
+
+      (data.dayRatings || []).forEach(function (row) {
+        if (row && row.date && row.energy) first.objectStore("days").put({ date: row.date, energy: row.energy });
       });
 
       var settings = data.settings || {};
@@ -1374,7 +1533,7 @@ var Hub = (function () {
 
   function wipe() {
     return open().then(function (db) {
-      var names = ["tasks", "taskLogs", "sleep", "food", "photos", "settings"];
+      var names = ["tasks", "taskLogs", "sleep", "food", "photos", "settings", "days"];
       var transaction = db.transaction(names, "readwrite");
       names.forEach(function (name) { transaction.objectStore(name).clear(); });
       return done(transaction);
@@ -1408,6 +1567,7 @@ var Hub = (function () {
     listTasks: listTasks, dayPlan: dayPlan, activeStreaks: activeStreaks,
     history: history, logByDates: logByDates, taskStats: taskStats,
     perfectStreak: perfectStreak,
+    rateDay: rateDay, dayRating: dayRating, dayRatings: dayRatings, insights: insights,
     // сон
     markBed: markBed, markWake: markWake, saveNight: saveNight, deleteNight: deleteNight,
     clearNight: clearNight, addNap: addNap, saveNap: saveNap, deleteNap: deleteNap,
