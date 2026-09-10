@@ -383,3 +383,23 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 .night-note{margin:6px 0 0 74px; font-size:13px}
 textarea{min-height:72px; resize:vertical; font-size:16px}
 @media (max-width:600px){ .night-note{margin-left:0} }
+
+/* ── Вкладка «Задачі»: прогрес дня і плитки статистики ─────────────────── */
+.progress{height:6px; border-radius:999px; background:var(--panel-2); overflow:hidden}
+.progress i{display:block; height:100%; width:0; background:var(--accent); border-radius:999px; transition:width .25s}
+.progress i.full{background:var(--green)}
+
+.stat-grid{display:grid; grid-template-columns:repeat(2, 1fr); gap:10px}
+@media (min-width:720px){ .stat-grid{grid-template-columns:repeat(4, 1fr)} }
+.stat{
+  background:var(--panel-2); border:1px solid var(--line); border-radius:12px;
+  padding:10px 12px; display:flex; flex-direction:column; gap:2px;
+}
+.stat-label{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint)}
+.stat-value{font-family:"Manrope", system-ui, sans-serif; font-size:22px; font-weight:800; line-height:1.1}
+.stat-sub{font-size:11px; color:var(--text-faint)}
+
+.block-sub{
+  font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint);
+  margin:18px 0 10px;
+}

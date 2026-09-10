@@ -18,7 +18,7 @@
     editing: null,
     settings: null,
     lastBedNotice: "",
-    histDays: 84,
+    histDays: 30,
     histTask: null,
     histExpanded: false,
     foodTags: [],
@@ -280,6 +280,15 @@
         ? "Сьогодні · " + humanDate(state.taskDay)
         : DOW[dowIndex(state.taskDay)] + ", " + humanDate(state.taskDay);
       $("#dayToday").hidden = isToday;
+
+      var full = plan.total && plan.done === plan.total;
+      $("#dayProgress").style.width = (plan.total ? Math.round(plan.done / plan.total * 100) : 0) + "%";
+      $("#dayProgress").className = full ? "full" : "";
+      $("#dayProgressText").textContent = plan.total
+        ? (full ? "Виконано все — " + plan.total + " з " + plan.total
+                : plan.done + " з " + plan.total + " · лишилось " + (plan.total - plan.done))
+        : "На цей день задач немає";
+
       $("#taskList").innerHTML = plan.tasks.length
         ? plan.tasks.map(function (t) { return taskRow(t); }).join("")
         : '<div class="empty">На цей день задач немає.</div>';
@@ -287,14 +296,60 @@
     });
   }
 
+  // Для місяця стовпчик — це день, для пів року — тиждень, для року — місяць.
+  var BUCKETS = { 30: "day", 182: "week", 364: "month" };
+
+  function bucketOf(iso, bucket) {
+    if (bucket === "day") return iso;
+    if (bucket === "week") return Hub.mondayOf(iso);
+    return iso.slice(0, 7);
+  }
+
+  function bucketLabel(key, bucket) {
+    if (bucket === "day") return key.slice(8);
+    if (bucket === "week") return key.slice(8) + "." + key.slice(5, 7);
+    return Hub.parseISO(key + "-01").toLocaleDateString("uk-UA", { month: "short" });
+  }
+
+  function bucketTitle(key, bucket, item) {
+    var when = bucket === "day" ? humanDate(key)
+      : bucket === "week" ? "тиждень з " + humanDate(key)
+      : Hub.parseISO(key + "-01").toLocaleDateString("uk-UA", { month: "long" });
+    return when + " · виконано " + item.done +
+      (item.planned ? " з " + item.planned + " запланованих" : "");
+  }
+
+  function aggregate(days, bucket) {
+    var order = [], map = {};
+    days.forEach(function (day) {
+      var key = bucketOf(day.date, bucket);
+      if (!map[key]) {
+        map[key] = { key: key, done: 0, plannedDone: 0, planned: 0 };
+        order.push(key);
+      }
+      map[key].done += day.done + day.extra;
+      map[key].plannedDone += day.done;
+      map[key].planned += day.planned;
+    });
+    return order.map(function (key) { return map[key]; });
+  }
+
+  function statTile(label, value, sub) {
+    return '<div class="stat"><span class="stat-label">' + esc(label) + "</span>" +
+      '<span class="stat-value">' + value + "</span>" +
+      (sub ? '<span class="stat-sub">' + esc(sub) + "</span>" : "") + "</div>";
+  }
+
   function renderHistory() {
+    var days = state.histDays;
+    var bucket = BUCKETS[days] || "week";
     return Promise.all([
       Hub.listTasks(Hub.today(), true),
-      Hub.history(state.histDays, null, state.histTask),
-      Hub.logByDates(state.histDays, null, state.histTask),
-      state.histTask ? Hub.taskStats(state.histTask, state.histDays) : Promise.resolve(null)
+      Hub.history(days, null, state.histTask),
+      Hub.logByDates(days, null, state.histTask),
+      state.histTask ? Hub.taskStats(state.histTask, days) : Hub.perfectStreak()
     ]).then(function (r) {
-      var tasks = r[0], heat = r[1], list = r[2], stats = r[3];
+      var tasks = r[0], heat = r[1], list = r[2], extra = r[3];
 
       // Задача могла зникнути — тоді повертаємось до загального вигляду.
       if (state.histTask && !tasks.some(function (t) { return t.id === state.histTask; })) {
@@ -309,35 +364,54 @@
             (state.histTask === t.id) + '">' + esc(t.name) + "</button>";
         }).join("");
 
-      var totalDone = list.reduce(function (sum, day) { return sum + day.names.length; }, 0);
-      if (stats) {
-        var parts = [
-          "<b>" + esc(stats.name) + "</b> · " + esc(stats.ruleLabel),
-          "виконано <b>" + stats.done + "</b>" + (stats.planned ? " з " + stats.planned + " запланованих" : ""),
-          "≈ <b>" + stats.perWeek + "</b> " + plural(Math.round(stats.perWeek), "раз", "рази", "разів") + " на тиждень",
-          "стрік <b>" + stats.streak + "</b>, рекорд <b>" + stats.best + "</b>"
-        ];
-        $("#histSummary").innerHTML = parts.join(" · ");
-      } else {
-        $("#histSummary").innerHTML = "Усього відміток за період: <b>" + totalDone + "</b>" +
-          ". Обери задачу, щоб побачити її окремо.";
-      }
+      var series = aggregate(heat.days, bucket);
+      var totals = series.reduce(function (acc, item) {
+        acc.done += item.done;
+        acc.plannedDone += item.plannedDone;
+        acc.planned += item.planned;
+        return acc;
+      }, { done: 0, plannedDone: 0, planned: 0 });
+
+      var perWeek = Math.round(totals.done / (days / 7) * 10) / 10;
+      var adherence = totals.planned
+        ? Math.round(totals.plannedDone / totals.planned * 100) + "%"
+        : "—";
+
+      $("#histTiles").innerHTML = state.histTask && extra
+        ? statTile("Виконано", extra.done, extra.planned ? "з " + extra.planned + " запланованих" : "") +
+          statTile("Дотримано", adherence, "плану за період") +
+          statTile("На тиждень", extra.perWeek, "у середньому") +
+          statTile("Стрік", extra.streak, "рекорд " + extra.best)
+        : statTile("Виконано", totals.done, "відміток за період") +
+          statTile("Дотримано", adherence, "плану за період") +
+          statTile("На тиждень", perWeek, "у середньому") +
+          statTile("Ідеальні дні", extra.streak, "рекорд " + extra.best);
+
+      $("#histChart").innerHTML = barChart(series.map(function (item) {
+        return {
+          label: bucketLabel(item.key, bucket),
+          value: item.done,
+          short: item.planned && item.plannedDone < item.planned,
+          title: bucketTitle(item.key, bucket, item)
+        };
+      }), { height: 170, unit: "count" });
+      $("#histChartHint").textContent = "Стовпчик — " +
+        (bucket === "day" ? "день" : bucket === "week" ? "тиждень" : "місяць") +
+        ". Жовтим — коли виконано менше, ніж було в плані.";
 
       renderHeatmap(heat);
 
-      var shown = state.histExpanded ? list : list.slice(0, 14);
-      $("#taskLog").innerHTML = shown.length
-        ? shown.map(function (day) {
+      var log = $("#taskLog");
+      log.hidden = !state.histExpanded;
+      log.innerHTML = list.length
+        ? list.map(function (day) {
             return '<div class="list-line"><span class="mono">' + esc(day.date.slice(5)) + "</span>" +
               '<span style="text-align:right">' + day.names.map(esc).join(", ") + "</span></div>";
           }).join("")
         : '<div class="empty">За цей період відміток немає.</div>';
-
-      var more = $("#histMore");
-      more.hidden = list.length <= 14;
-      more.textContent = state.histExpanded
-        ? "Згорнути"
-        : "Показати всі " + list.length + " " + plural(list.length, "день", "дні", "днів");
+      $("#histMore").textContent = state.histExpanded
+        ? "Сховати дати"
+        : "Показати дати (" + list.length + ")";
     });
   }
 
@@ -1146,6 +1220,8 @@
       if (!name) { input.focus(); return; }
       Hub.createTask(name, ruleFrom($("#newTaskRule").value, state.newTaskDays)).then(function () {
         input.value = "";
+        $("#addForm").hidden = true;
+        $("#addToggle").textContent = "＋ Нова задача";
         toast("Додано");
         return refresh();
       }).catch(fail);
@@ -1230,7 +1306,17 @@
 
     $("#histMore").addEventListener("click", function () {
       state.histExpanded = !state.histExpanded;
-      renderHistory().catch(fail);
+      $("#taskLog").hidden = !state.histExpanded;
+      $("#histMore").textContent = state.histExpanded
+        ? "Сховати дати"
+        : "Показати дати (" + $$("#taskLog .list-line").length + ")";
+    });
+
+    $("#addToggle").addEventListener("click", function () {
+      var form = $("#addForm");
+      form.hidden = !form.hidden;
+      $("#addToggle").textContent = form.hidden ? "＋ Нова задача" : "Згорнути";
+      if (!form.hidden) $("#newTaskName").focus();
     });
 
     $("#foodShoot").addEventListener("click", function () { $("#foodCamera").click(); });

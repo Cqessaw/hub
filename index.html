@@ -103,7 +103,7 @@
   <!-- ── Задачі ────────────────────────────────────────────────────────── -->
   <section id="tab-tasks" hidden>
     <div class="card" style="margin-bottom:14px">
-      <div class="row" style="justify-content:space-between; margin-bottom:12px">
+      <div class="row" style="justify-content:space-between; margin-bottom:10px">
         <button class="btn ghost" id="dayPrev" aria-label="Попередній день">←</button>
         <div style="text-align:center">
           <div style="font-weight:700" id="taskDayLabel">—</div>
@@ -111,48 +111,59 @@
         </div>
         <button class="btn ghost" id="dayNext" aria-label="Наступний день">→</button>
       </div>
+      <div class="progress"><i id="dayProgress"></i></div>
+      <div class="muted" id="dayProgressText" style="margin:6px 0 12px"></div>
       <div id="taskList"></div>
     </div>
 
     <div class="card" style="margin-bottom:14px">
-      <h2>Нова задача</h2>
-      <div class="wrap-row" style="align-items:flex-end">
-        <div style="flex:2; min-width:190px">
-          <label class="field" for="newTaskName">Назва</label>
-          <input type="text" id="newTaskName" placeholder="Наприклад: зал" autocomplete="off">
+      <button class="btn ghost" id="addToggle" style="width:100%">＋ Нова задача</button>
+      <div id="addForm" hidden style="margin-top:12px">
+        <div class="wrap-row" style="align-items:flex-end">
+          <div style="flex:2; min-width:190px">
+            <label class="field" for="newTaskName">Назва</label>
+            <input type="text" id="newTaskName" placeholder="Наприклад: зал" autocomplete="off">
+          </div>
+          <div style="flex:1; min-width:150px">
+            <label class="field" for="newTaskRule">Повторення</label>
+            <select id="newTaskRule">
+              <option value="once">Одноразова</option>
+              <option value="daily">Щодня</option>
+              <option value="days">Дні тижня</option>
+            </select>
+          </div>
+          <button class="btn primary" id="addTask">Додати</button>
         </div>
-        <div style="flex:1; min-width:150px">
-          <label class="field" for="newTaskRule">Повторення</label>
-          <select id="newTaskRule">
-            <option value="once">Одноразова</option>
-            <option value="daily">Щодня</option>
-            <option value="days">Дні тижня</option>
-          </select>
-        </div>
-        <button class="btn primary" id="addTask">Додати</button>
+        <div id="newTaskDays" class="daychips" style="margin-top:10px" hidden></div>
       </div>
-      <div id="newTaskDays" class="daychips" style="margin-top:10px" hidden></div>
     </div>
 
     <div class="card">
       <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
-        <h2 style="margin:0">Історія</h2>
+        <h2 style="margin:0">Статистика</h2>
         <div class="wrap-row">
-          <button class="btn ghost" data-hist-days="84" aria-pressed="true">12 тижнів</button>
+          <button class="btn ghost" data-hist-days="30" aria-pressed="true">Місяць</button>
           <button class="btn ghost" data-hist-days="182" aria-pressed="false">Пів року</button>
           <button class="btn ghost" data-hist-days="364" aria-pressed="false">Рік</button>
         </div>
       </div>
+
       <div class="wrap-row filter-row" id="histFilter" style="margin:12px 0"></div>
-      <div class="muted" id="histSummary" style="margin-bottom:12px"></div>
+      <div class="stat-grid" id="histTiles"></div>
+
+      <div id="histChart" style="margin-top:14px"></div>
+      <div class="muted" id="histChartHint" style="margin-top:4px"></div>
+
+      <h3 class="block-sub">Календар</h3>
       <div class="heat" id="taskHeat"></div>
       <div class="heat-legend">
         <span>менше</span>
         <i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i>
         <span>більше</span>
       </div>
-      <div id="taskLog" style="margin-top:14px"></div>
-      <button class="btn ghost" id="histMore" style="margin-top:10px; width:100%">Показати всю історію</button>
+
+      <button class="btn ghost" id="histMore" style="margin-top:14px; width:100%">Показати дати</button>
+      <div id="taskLog" style="margin-top:12px" hidden></div>
     </div>
   </section>
 
