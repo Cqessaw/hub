@@ -170,6 +170,7 @@
   <!-- ── Сон ───────────────────────────────────────────────────────────── -->
   <section id="tab-sleep" hidden>
     <div id="sleepBanners"></div>
+
     <div class="card" style="margin-bottom:14px">
       <div class="wrap-row" style="gap:10px">
         <button class="btn big-action" id="btnBed">🌙 Ліг спати<span class="sub">записати поточний час</span></button>
@@ -179,23 +180,24 @@
     </div>
 
     <div class="card" style="margin-bottom:14px">
-      <div class="row" style="justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px">
-        <h2 style="margin:0">Тривалість сну</h2>
+      <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <h2 style="margin:0">Статистика</h2>
         <div class="wrap-row">
-          <button class="btn ghost" data-range="14" aria-pressed="true">2 тижні</button>
-          <button class="btn ghost" data-range="30" aria-pressed="false">Місяць</button>
-          <button class="btn ghost" data-range="weeks" aria-pressed="false">По тижнях</button>
+          <button class="btn ghost" data-sleep-days="30" aria-pressed="true">Місяць</button>
+          <button class="btn ghost" data-sleep-days="182" aria-pressed="false">Пів року</button>
+          <button class="btn ghost" data-sleep-days="364" aria-pressed="false">Рік</button>
         </div>
       </div>
-      <div id="sleepChart"></div>
-      <div class="wrap-row muted" id="sleepStats" style="margin-top:10px; gap:16px"></div>
+      <div class="stat-grid" id="sleepTiles" style="margin-top:12px"></div>
+      <div id="sleepChart" style="margin-top:14px"></div>
+      <div class="muted" id="sleepChartHint" style="margin-top:4px"></div>
     </div>
 
     <div class="card">
-      <h2>Останні ночі</h2>
+      <h2>Ночі</h2>
       <div class="muted" style="margin:-4px 0 12px">
         Ніч підписана датою, коли ти ліг: ліг 9-го — прокинувся 10-го.
-        Під кожним рядком можна додати дрімання серед дня.
+        Торкнись рядка, щоб змінити час, оцінку чи додати дрімання.
       </div>
       <div id="sleepTable"></div>
     </div>
@@ -203,35 +205,31 @@
 
   <!-- ── Їжа ───────────────────────────────────────────────────────────── -->
   <section id="tab-food" hidden>
-    <div class="grid" style="margin-bottom:14px">
-      <div class="card">
-        <h2 id="foodStreakTitle">Без солодкого</h2>
-        <div class="big" id="foodStreak">—<small>днів</small></div>
-        <div class="muted" id="foodStreakHint" style="margin-top:6px"></div>
-      </div>
-      <div class="card">
-        <h2>Цей тиждень</h2>
-        <div class="big" id="foodWeekSweets">—</div>
-        <div class="muted" id="foodWeekHint" style="margin-top:6px"></div>
-      </div>
-      <div class="card span-2">
-        <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
-          <h2 style="margin:0">Категорії за тиждень</h2>
-          <button class="btn ghost" id="tagsBtn">Налаштувати</button>
-        </div>
-        <div id="foodTagStats" style="margin-top:12px"></div>
-      </div>
-      <div class="card span-2">
-        <h2>Зриви по тижнях</h2>
-        <div id="foodChart"></div>
-      </div>
-    </div>
-
     <div class="card shoot" style="margin-bottom:14px">
       <input type="file" id="foodCamera" accept="image/*" capture="environment" hidden>
       <input type="file" id="foodFile" accept="image/*" multiple hidden>
       <button class="btn primary big-action" id="foodShoot">📸 Сфотографувати їжу<span class="sub">камера відкриється одразу</span></button>
       <button class="btn" id="foodPick">Вибрати з галереї</button>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <h2 style="margin:0">Статистика</h2>
+        <div class="wrap-row">
+          <button class="btn ghost" data-food-days="30" aria-pressed="true">Місяць</button>
+          <button class="btn ghost" data-food-days="182" aria-pressed="false">Пів року</button>
+          <button class="btn ghost" data-food-days="364" aria-pressed="false">Рік</button>
+        </div>
+      </div>
+      <div class="stat-grid" id="foodTiles" style="margin-top:12px"></div>
+      <div id="foodChart" style="margin-top:14px"></div>
+      <div class="muted" id="foodChartHint" style="margin-top:4px"></div>
+
+      <div class="row" style="justify-content:space-between; align-items:center; margin-top:16px">
+        <h3 class="block-sub" style="margin:0">Категорії за період</h3>
+        <button class="btn ghost" id="tagsBtn">Налаштувати</button>
+      </div>
+      <div class="tag-counts" id="foodTagStats" style="margin-top:10px"></div>
     </div>
 
     <div class="wrap-row filter-row" id="foodFilter" style="margin-bottom:14px"></div>

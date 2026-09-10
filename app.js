@@ -12,7 +12,9 @@
   var state = {
     tab: "overview",
     taskDay: Hub.today(),
-    sleepRange: "14",
+    sleepDays: 30,
+    foodDays: 30,
+    openNight: null,
     newTaskDays: new Set([1, 3, 5]),
     editDays: new Set(),
     editing: null,
@@ -311,6 +313,16 @@
     return Hub.parseISO(key + "-01").toLocaleDateString("uk-UA", { month: "short" });
   }
 
+  function bucketWhen(key, bucket) {
+    if (bucket === "day") return humanDate(key);
+    if (bucket === "week") return "тиждень з " + humanDate(key);
+    return Hub.parseISO(key + "-01").toLocaleDateString("uk-UA", { month: "long" });
+  }
+
+  function bucketNote(bucket) {
+    return "Стовпчик — " + (bucket === "day" ? "день" : bucket === "week" ? "тиждень" : "місяць") + ".";
+  }
+
   function bucketTitle(key, bucket, item) {
     var when = bucket === "day" ? humanDate(key)
       : bucket === "week" ? "тиждень з " + humanDate(key)
@@ -476,10 +488,21 @@
   }
 
   function nightRow(night) {
-    var naps = night.naps || [];
-    return '<div class="night" data-night="' + night.date + '">' +
-      '<div class="night-row">' +
-        '<span class="mono night-date">' + DOW[dowIndex(night.date)] + " " + night.date.slice(5) + "</span>" +
+    // Згорнутий рядок — один погляд; усе редагування розкривається за дотиком.
+    var open = state.openNight === night.date;
+    var times = (night.sleepTime || night.wakeTime)
+      ? (hhmm(night.sleepTime) || "—") + " → " + (hhmm(night.wakeTime) || "—")
+      : "не записано";
+    var head = '<button class="night-head" data-expand>' +
+      '<span class="mono night-date">' + DOW[dowIndex(night.date)] + " " + night.date.slice(5) + "</span>" +
+      '<span class="mono night-times">' + times + "</span>" +
+      (night.napMinutes ? '<span class="night-nap">💤 ' + night.napMinutes + "</span>" : "") +
+      (night.quality ? '<span class="night-q">' + "★".repeat(night.quality) + "</span>" : "") +
+      '<span class="mono night-dur">' + fmtShort(night.duration) + "</span>" +
+      "</button>";
+
+    var body = '<div class="night-body"' + (open ? "" : " hidden") + ">" +
+      '<div class="night-edit">' +
         '<span class="timepair">' +
           '<span class="tf"><input type="time" data-field="sleepTime" value="' + hhmm(night.sleepTime) + '">' +
             "<em>" + esc(sideDate(night.date, hhmm(night.sleepTime), "sleep")) + "</em></span>" +
@@ -487,28 +510,60 @@
           '<span class="tf"><input type="time" data-field="wakeTime" value="' + hhmm(night.wakeTime) + '">' +
             "<em>" + esc(sideDate(night.date, hhmm(night.wakeTime), "wake")) + "</em></span>" +
         "</span>" +
-        '<span class="mono dur">' + fmtShort(night.duration) + "</span>" +
         '<span class="stars" data-value="' + (night.quality || 0) +
           '" title="Натисни ту саму зірку ще раз, щоб прибрати оцінку">' +
           [1, 2, 3, 4, 5].map(function (n) {
             return '<button data-q="' + n + '" class="' + (night.quality >= n ? "on" : "") + '">★</button>';
           }).join("") + "</span>" +
-        '<button class="icon-btn tiny" data-note-night title="Нотатка" aria-label="Нотатка">✎</button>' +
-        '<button class="icon-btn tiny" data-clear-night title="Прибрати години сну" aria-label="Прибрати години сну">✕</button>' +
+        '<span class="wrap-row">' +
+          '<button class="icon-btn tiny" data-note-night title="Нотатка" aria-label="Нотатка">✎</button>' +
+          '<button class="icon-btn tiny" data-clear-night title="Прибрати години сну" aria-label="Прибрати години сну">✕</button>' +
+        "</span>" +
       "</div>" +
       (night.note ? '<div class="night-note muted">' + esc(night.note) + "</div>" : "") +
       '<div class="naps">' +
-        naps.map(napRow).join("") +
+        (night.naps || []).map(napRow).join("") +
         '<button class="btn ghost nap-add" data-add-nap>＋ дрімання</button>' +
       "</div>" +
     "</div>";
+
+    return '<div class="night' + (open ? " open" : "") + '" data-night="' + night.date + '">' +
+      head + body + "</div>";
+  }
+
+  function aggregateSleep(nights, bucket) {
+    var order = [], map = {};
+    nights.forEach(function (night) {
+      var key = bucketOf(night.date, bucket);
+      if (!map[key]) {
+        map[key] = { key: key, sum: 0, naps: 0, count: 0 };
+        order.push(key);
+      }
+      if (night.duration) {
+        map[key].sum += night.duration;
+        map[key].count += 1;
+      }
+      map[key].naps += night.napMinutes || 0;
+    });
+    return order.map(function (key) {
+      var item = map[key];
+      // Для тижня й місяця показуємо середню ніч — інакше стовпчики незрівнянні.
+      return {
+        key: key,
+        value: item.count ? Math.round(item.sum / item.count) : 0,
+        naps: item.count ? Math.round(item.naps / item.count) : item.naps,
+        nights: item.count
+      };
+    });
   }
 
   function renderSleep() {
+    var days = state.sleepDays;
+    var bucket = BUCKETS[days] || "week";
     return Promise.all([
-      Hub.nights(60), Hub.weeklyAverage(8), Hub.sleepStats(7), Hub.sleepStats(30), Hub.advisor()
+      Hub.nights(days), Hub.sleepStats(days), Hub.advisor()
     ]).then(function (r) {
-      var nights = r[0], weekly = r[1], weekStats = r[2], monthStats = r[3], advice = r[4];
+      var nights = r[0], stats = r[1], advice = r[2];
       var goal = advice.goalMinutes;
 
       var tonight = advice.tonight;
@@ -525,42 +580,33 @@
           (advice.deficit ? "⚠️" : "🌙") + "</span><span>" + esc(message) + "</span></div>";
       }).join("");
 
-      var items;
-      if (state.sleepRange === "weeks") {
-        items = weekly.map(function (w) {
-          return {
-            label: w.week.slice(5),
-            value: w.avg,
-            short: w.avg < goal - 20,
-            title: "тиждень з " + humanDate(w.week) + " · середнє " + Hub.fmtMinutes(w.avg) + " за " + w.nights + " ноч."
-          };
-        });
-      } else {
-        items = nights.slice(-Number(state.sleepRange)).map(function (n) {
-          var title = humanDate(n.date) + " · " + Hub.fmtMinutes(n.duration);
-          if (n.napMinutes) title += " + дрімання " + Hub.fmtMinutes(n.napMinutes);
-          return {
-            label: n.date.slice(8),
-            value: n.duration || 0,
-            extra: n.napMinutes || 0,
-            short: n.duration && n.duration < goal - 20,
-            title: title
-          };
-        });
-      }
-      $("#sleepChart").innerHTML = barChart(items, { goal: goal, height: 190 });
+      var filled = nights.filter(function (n) { return n.duration; });
+      var inNorm = filled.filter(function (n) { return n.duration >= goal - 20; }).length;
+      $("#sleepTiles").innerHTML =
+        statTile("Середнє", stats.avg ? Hub.fmtMinutes(stats.avg) : "—", "за " + filled.length + " " + plural(filled.length, "ніч", "ночі", "ночей")) +
+        statTile("У нормі", filled.length ? Math.round(inNorm / filled.length * 100) + "%" : "—", "ночей від " + Hub.fmtMinutes(goal)) +
+        statTile("Якість", stats.avgQuality ? stats.avgQuality + "/5" : "—", "середня оцінка") +
+        statTile("Дрімання", stats.napMinutes ? Hub.fmtMinutes(stats.napMinutes) : "—",
+          stats.napDays ? "за " + stats.napDays + " " + plural(stats.napDays, "день", "дні", "днів") : "не було");
 
-      $("#sleepStats").innerHTML =
-        "<span>Тиждень: <b>" + Hub.fmtMinutes(weekStats.avg) + "</b></span>" +
-        "<span>Місяць: <b>" + Hub.fmtMinutes(monthStats.avg) + "</b></span>" +
-        "<span>Норма: <b>" + Hub.fmtMinutes(goal) + "</b></span>" +
-        (monthStats.avgQuality ? "<span>Якість: <b>" + monthStats.avgQuality + "/5</b></span>" : "") +
-        (monthStats.napMinutes
-          ? "<span>Дрімання за місяць: <b>" + Hub.fmtMinutes(monthStats.napMinutes) + "</b> за " +
-            monthStats.napDays + " " + plural(monthStats.napDays, "день", "дні", "днів") + "</span>"
-          : "");
+      var series = aggregateSleep(nights, bucket);
+      $("#sleepChart").innerHTML = barChart(series.map(function (item) {
+        var title = bucketWhen(item.key, bucket) + " · " +
+          (bucket === "day" ? Hub.fmtMinutes(item.value) : "у середньому " + Hub.fmtMinutes(item.value));
+        if (item.naps) title += " + дрімання " + Hub.fmtMinutes(item.naps);
+        return {
+          label: bucketLabel(item.key, bucket),
+          value: item.value,
+          extra: item.naps,
+          short: item.value && item.value < goal - 20,
+          title: title
+        };
+      }), { goal: goal, height: 180 });
+      $("#sleepChartHint").textContent = bucketNote(bucket) +
+        (bucket === "day" ? "" : " Висота — середня ніч за цей час.") +
+        " Фіолетовим — дрімання, жовтим — коротка ніч.";
 
-      var recent = nights.slice(-14).reverse();
+      var recent = nights.slice(-30).reverse();
       state.nightNotes = {};
       recent.forEach(function (night) { state.nightNotes[night.date] = night.note || ""; });
       $("#sleepTable").innerHTML = recent.map(nightRow).join("");
@@ -570,16 +616,49 @@
   // ── Їжа ───────────────────────────────────────────────────────────────
 
   function renderFood() {
+    var days = state.foodDays;
+    var bucket = BUCKETS[days] || "week";
     return Promise.all([
-      Hub.feed(120), Hub.avoidStreak(), Hub.thisWeek(), Hub.weeklyStats(8), Hub.getFoodTags()
+      Hub.feed(120), Hub.avoidStreak(), Hub.foodStats(days), Hub.getFoodTags()
     ]).then(function (r) {
-      var feed = r[0], streak = r[1], week = r[2], weekly = r[3], tags = r[4];
+      var feed = r[0], streak = r[1], stats = r[2], tags = r[3];
       state.foodTags = tags;
       state.foodNotes = {};
       feed.forEach(function (day) {
         day.items.forEach(function (item) { state.foodNotes[item.id] = item.note || ""; });
       });
-      // Фільтр показуємо лише тоді, коли є що фільтрувати.
+
+      $("#foodTiles").innerHTML =
+        statTile(streak.onlySweet ? "Без солодкого" : "Без зривів", streak.streak,
+          "рекорд " + streak.best) +
+        statTile("Зривів", stats.avoid,
+          stats.avoidDays ? "у " + stats.avoidDays + " " + plural(stats.avoidDays, "день", "дні", "днів") : "жодного дня") +
+        statTile("Чисті дні", stats.totalDays ? Math.round(stats.cleanDays / stats.totalDays * 100) + "%" : "—",
+          stats.cleanDays + " з " + stats.totalDays) +
+        statTile("Фото", stats.photos,
+          stats.loggedDays ? "за " + stats.loggedDays + " " + plural(stats.loggedDays, "день", "дні", "днів") : "ще немає");
+
+      var series = aggregate(stats.days.map(function (day) {
+        return { date: day.date, done: day.avoid, extra: 0, planned: 0 };
+      }), bucket);
+      $("#foodChart").innerHTML = barChart(series.map(function (item) {
+        return {
+          label: bucketLabel(item.key, bucket),
+          value: item.done,
+          title: bucketWhen(item.key, bucket) + " · зривів " + item.done
+        };
+      }), { height: 150, unit: "count" });
+      $("#foodChartHint").textContent = bucketNote(bucket) +
+        " Висота — скільки разів траплялось те, чого уникаєш.";
+
+      $("#foodTagStats").innerHTML = stats.byTag.length
+        ? stats.byTag.map(function (tag) {
+            return '<span class="tag-count' + (tag.avoid && tag.count ? " avoid" : "") +
+              (tag.count ? "" : " zero") + '">' + tag.emoji + " <b>" + esc(tag.name) +
+              "</b> <i>" + tag.count + "</i></span>";
+          }).join("")
+        : '<span class="muted">Категорій немає.</span>';
+
       var filterBox = $("#foodFilter");
       filterBox.hidden = !feed.length;
       filterBox.innerHTML = '<button class="chip" data-food-filter="" aria-pressed="' +
@@ -600,37 +679,6 @@
             };
           }).filter(function (day) { return day.items.length; })
         : feed;
-
-      $("#foodStreakTitle").textContent = streak.onlySweet ? "Без солодкого" : "Без зривів";
-      $("#foodStreak").innerHTML = streak.streak + "<small>" +
-        plural(streak.streak, "день", "дні", "днів") + "</small>";
-      $("#foodStreakHint").textContent = streak.avoidNames.length
-        ? (streak.last ? "останній зрив: " + humanDate(streak.last) + " · рекорд " + streak.best
-                       : "рекорд " + streak.best) +
-          " · рахується: " + streak.avoidNames.join(", ")
-        : "жодна категорія не позначена як «уникаю»";
-
-      $("#foodWeekSweets").innerHTML = week.avoid + "<small>" +
-        plural(week.avoid, "зрив", "зриви", "зривів") + "</small>";
-      $("#foodWeekHint").textContent = week.photos + " " + plural(week.photos, "фото", "фото", "фото") +
-        " з " + humanDate(week.from) + " · днів зі зривом: " + week.avoidDays;
-
-      $("#foodTagStats").innerHTML = week.byTag.length
-        ? week.byTag.map(function (t) {
-            return '<div class="list-line"><span>' + t.emoji + " " + esc(t.name) +
-              (t.avoid ? ' <span class="muted">уникаю</span>' : "") + "</span>" +
-              '<span class="pill' + (t.count ? (t.avoid ? " hot" : " good") : " cold") + '">' +
-              t.count + "</span></div>";
-          }).join("")
-        : '<div class="empty">Категорій немає.</div>';
-
-      $("#foodChart").innerHTML = barChart(weekly.map(function (w) {
-        return {
-          label: w.week.slice(5),
-          value: w.avoid,
-          title: "тиждень з " + humanDate(w.week) + " · зривів " + w.avoid + " з " + w.total + " фото"
-        };
-      }), { height: 150, unit: "count" });
 
       $("#foodFeed").innerHTML = shown.length
         ? shown.map(function (day) {
@@ -1151,6 +1199,39 @@
         return;
       }
 
+      var expandNight = event.target.closest(".night-head");
+      if (expandNight) {
+        var box = expandNight.closest(".night");
+        var body = box.querySelector(".night-body");
+        var willOpen = body.hidden;
+        $$(".night-body").forEach(function (el) { el.hidden = true; });
+        $$(".night").forEach(function (el) { el.classList.remove("open"); });
+        body.hidden = !willOpen;
+        box.classList.toggle("open", willOpen);
+        state.openNight = willOpen ? box.dataset.night : null;
+        return;
+      }
+
+      var sleepDays = event.target.closest("[data-sleep-days]");
+      if (sleepDays) {
+        state.sleepDays = Number(sleepDays.dataset.sleepDays);
+        $$("[data-sleep-days]").forEach(function (b) {
+          b.setAttribute("aria-pressed", String(b === sleepDays));
+        });
+        renderSleep().catch(fail);
+        return;
+      }
+
+      var foodDays = event.target.closest("[data-food-days]");
+      if (foodDays) {
+        state.foodDays = Number(foodDays.dataset.foodDays);
+        $$("[data-food-days]").forEach(function (b) {
+          b.setAttribute("aria-pressed", String(b === foodDays));
+        });
+        renderFood().catch(fail);
+        return;
+      }
+
       var clearNight = event.target.closest("[data-clear-night]");
       if (clearNight) {
         var nightBox = clearNight.closest("[data-night]");
@@ -1254,13 +1335,6 @@
         toast(night && night.duration ? "Сон: " + Hub.fmtMinutes(night.duration) : "Записано");
         return refresh();
       }).catch(fail);
-    });
-    $$("[data-range]").forEach(function (button) {
-      button.addEventListener("click", function () {
-        state.sleepRange = button.dataset.range;
-        $$("[data-range]").forEach(function (b) { b.setAttribute("aria-pressed", String(b === button)); });
-        renderSleep().catch(fail);
-      });
     });
     $("#sleepTable").addEventListener("change", function (event) {
       var input = event.target.closest("input[data-field]");

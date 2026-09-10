@@ -1146,6 +1146,53 @@ var Hub = (function () {
     });
   }
 
+  function foodStats(days, end) {
+    // Ряд по днях плюс підсумки за період — з цього малюються плитки й графік.
+    var last = end || today();
+    var first = shift(last, -(days - 1));
+    return Promise.all([foodRows(), getFoodTags()]).then(function (parts) {
+      var tags = parts[1];
+      var avoid = avoidSet(tags);
+      var rows = parts[0].filter(function (r) { return r.date >= first && r.date <= last; });
+
+      var byDate = {};
+      var cursor = first;
+      while (cursor <= last) {
+        byDate[cursor] = { date: cursor, photos: 0, avoid: 0 };
+        cursor = shift(cursor, 1);
+      }
+      rows.forEach(function (row) {
+        var day = byDate[row.date];
+        if (!day) return;
+        day.photos += 1;
+        if (hasAvoid(row, avoid)) day.avoid += 1;
+      });
+
+      var series = Object.keys(byDate).sort().map(function (key) { return byDate[key]; });
+      var avoidDays = series.filter(function (day) { return day.avoid; }).length;
+
+      return {
+        from: first,
+        to: last,
+        days: series,
+        totalDays: series.length,
+        photos: rows.length,
+        avoid: rows.filter(function (row) { return hasAvoid(row, avoid); }).length,
+        avoidDays: avoidDays,
+        cleanDays: series.length - avoidDays,
+        loggedDays: series.filter(function (day) { return day.photos; }).length,
+        byTag: tags.map(function (tag) {
+          var hits = rows.filter(function (row) { return tagsOf(row).indexOf(tag.id) !== -1; });
+          return {
+            id: tag.id, name: tag.name, emoji: tag.emoji, avoid: tag.avoid,
+            count: hits.length,
+            days: new Set(hits.map(function (row) { return row.date; })).size
+          };
+        })
+      };
+    });
+  }
+
   function thisWeek(end) {
     var last = end || today();
     var monday = mondayOf(last);
@@ -1373,7 +1420,7 @@ var Hub = (function () {
     getFoodTags: getFoodTags, addFoodTag: addFoodTag,
     updateFoodTag: updateFoodTag, deleteFoodTag: deleteFoodTag,
     feed: feed, latestFood: latestFood, avoidStreak: avoidStreak, getPhoto: getPhoto,
-    weeklyStats: weeklyStats, thisWeek: thisWeek,
+    weeklyStats: weeklyStats, thisWeek: thisWeek, foodStats: foodStats,
     // спільне
     getSettings: getSettings, saveSettings: saveSettings,
     exportAll: exportAll, importAll: importAll, wipe: wipe, usage: usage, persist: persist
