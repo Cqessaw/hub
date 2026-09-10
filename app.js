@@ -808,11 +808,22 @@
     });
   }
 
+  function shotMoment(file) {
+    // Знімок із галереї міг бути зроблений учора — беремо час файлу, а не
+    // поточний. Явно зіпсовані дати (майбутнє чи глибока давнина) ігноруємо.
+    var now = Date.now();
+    var stampMs = file && file.lastModified;
+    if (!stampMs || stampMs > now + 60000 || now - stampMs > 3 * 365 * 86400000) return new Date();
+    return new Date(stampMs);
+  }
+
   function acceptPhotos(files, source) {
     var list = Array.prototype.slice.call(files || []);
     if (!list.length) return Promise.resolve();
     return list.reduce(function (chain, file) {
-      return chain.then(function () { return Hub.addPhoto(file, { source: source }); });
+      return chain.then(function () {
+        return Hub.addPhoto(file, { source: source, moment: shotMoment(file) });
+      });
     }, Promise.resolve()).then(function () {
       toast(list.length === 1 ? "Фото збережено — постав тег" : list.length + " фото збережено");
       return renderFood();
