@@ -140,6 +140,10 @@
               <option value="days">Дні тижня</option>
             </select>
           </div>
+          <div style="width:96px">
+            <label class="field" for="newTaskGoal">Ціль/день</label>
+            <input type="number" id="newTaskGoal" min="0" max="999" placeholder="—">
+          </div>
           <button class="btn primary" id="addTask">Додати</button>
         </div>
         <div id="newTaskDays" class="daychips" style="margin-top:10px" hidden></div>
@@ -206,6 +210,7 @@
       <input type="file" id="foodFile" accept="image/*" multiple hidden>
       <button class="btn primary big-action" id="foodShoot">📸 Сфотографувати їжу</button>
       <button class="btn" id="foodPick">Вибрати з галереї</button>
+      <button class="btn" id="foodNoPhoto">Записати без фото</button>
     </div>
 
     <div class="card" style="margin-bottom:14px">
@@ -334,6 +339,10 @@
       </select>
     </div>
     <div id="editDays" class="daychips" hidden></div>
+    <div>
+      <label class="field" for="editGoal">Ціль за день</label>
+      <input type="number" id="editGoal" min="0" max="999" placeholder="без лічильника">
+    </div>
     <div>
       <label class="field" for="editNote">Примітка</label>
       <input type="text" id="editNote" autocomplete="off" placeholder="необов'язково">

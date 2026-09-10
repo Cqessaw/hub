@@ -175,8 +175,12 @@
         '<button class="icon-btn tiny" data-move="' + task.id + '" data-dir="1" title="Нижче" aria-label="Нижче">↓</button>' +
         '<button class="icon-btn tiny" data-edit="' + task.id + '" title="Змінити" aria-label="Змінити">✎</button>' +
       "</div>";
+    var control = task.goal
+      ? '<button class="check count" data-count="' + task.id + '" aria-label="Додати одиницю">' +
+          task.count + "/" + task.goal + "</button>"
+      : '<button class="check" data-toggle="' + task.id + '" aria-label="Відмітити виконаним">✓</button>';
     return '<div class="task' + (task.completed ? " done" : "") + '" data-id="' + task.id + '">' +
-      '<button class="check" data-toggle="' + task.id + '" aria-label="Відмітити виконаним">✓</button>' +
+      control +
       '<div class="name">' + esc(task.name) +
         '<div class="meta">' + esc(task.ruleLabel) + (task.note ? " · " + esc(task.note) : "") + "</div>" +
       "</div>" + streak + actions + "</div>";
@@ -325,7 +329,7 @@
       $("#taskDatePick").value = state.taskDay;
 
       var full = plan.total && plan.done === plan.total;
-      $("#dayProgress").style.width = (plan.total ? Math.round(plan.done / plan.total * 100) : 0) + "%";
+      $("#dayProgress").style.width = Math.round((plan.progress || 0) * 100) + "%";
       $("#dayProgress").className = full ? "full" : "";
       $("#dayProgressText").textContent = plan.total
         ? (full ? "Виконано все — " + plan.total + " з " + plan.total
@@ -773,8 +777,13 @@
     }).join("");
     var names = tags.filter(function (tag) { return picked.indexOf(tag.id) !== -1; })
       .map(function (tag) { return esc(tag.name); }).join(" · ");
-    return '<div class="shot" data-food="' + item.id + '">' +
-      (item.blob ? '<img src="' + photoUrl(item) + '" data-photo="' + item.id + '" alt="" loading="lazy">' : "") +
+    var picture = item.blob
+      ? '<img src="' + photoUrl(item) + '" data-photo="' + item.id + '" alt="" loading="lazy">'
+      : '<div class="placeholder">' + (tags.filter(function (tag) {
+          return picked.indexOf(tag.id) !== -1;
+        }).map(function (tag) { return tag.emoji; })[0] || "🍽") + "</div>";
+    return '<div class="shot' + (item.blob ? "" : " no-photo") + '" data-food="' + item.id + '">' +
+      picture +
       '<div class="info"><span class="time">' + esc(item.ts.slice(11, 16)) +
       (item.note ? " · " + esc(item.note) : "") + "</span>" +
       '<div class="tagline">' + chips +
@@ -996,6 +1005,7 @@
       ? task.rule.slice(5).split(",").map(Number) : []);
     $("#editName").value = task.name;
     $("#editRule").value = task.rule === "once" ? "once" : task.rule === "daily" ? "daily" : "days";
+    $("#editGoal").value = task.goal ? String(task.goal) : "";
     $("#editNote").value = task.note || "";
     $("#editActive").checked = task.active !== false;
     $("#editDays").hidden = $("#editRule").value !== "days";
@@ -1008,6 +1018,7 @@
     return Hub.updateTask(state.editing.id, {
       name: $("#editName").value,
       rule: ruleFrom($("#editRule").value, state.editDays),
+      goal: $("#editGoal").value,
       note: $("#editNote").value,
       active: $("#editActive").checked
     }).then(function () {
@@ -1180,6 +1191,19 @@
         row.classList.toggle("done", completed);
         var day = state.tab === "tasks" ? state.taskDay : Hub.today();
         Hub.setDone(Number(toggle.dataset.toggle), day, completed).then(refresh).catch(fail);
+        return;
+      }
+
+      var counter = event.target.closest("[data-count]");
+      if (counter) {
+        var counterId = Number(counter.dataset.count);
+        var parts = counter.textContent.split("/");
+        var now = Number(parts[0]) || 0;
+        var target = Number(parts[1]) || 0;
+        var day = state.tab === "tasks" ? state.taskDay : Hub.today();
+        // Дійшов до цілі — наступний дотик обнуляє, щоб можна було виправити.
+        var job = now >= target ? Hub.setCount(counterId, day, 0) : Hub.bumpCount(counterId, day, 1);
+        job.then(refresh).catch(fail);
         return;
       }
 
@@ -1384,8 +1408,10 @@
       var input = $("#newTaskName");
       var name = input.value.trim();
       if (!name) { input.focus(); return; }
-      Hub.createTask(name, ruleFrom($("#newTaskRule").value, state.newTaskDays)).then(function () {
+      Hub.createTask(name, ruleFrom($("#newTaskRule").value, state.newTaskDays), "",
+          $("#newTaskGoal").value).then(function () {
         input.value = "";
+        $("#newTaskGoal").value = "";
         $("#addForm").hidden = true;
         $("#addToggle").textContent = "＋ Нова задача";
         toast("Додано");
@@ -1490,6 +1516,12 @@
 
     $("#foodShoot").addEventListener("click", function () { $("#foodCamera").click(); });
     $("#foodPick").addEventListener("click", function () { $("#foodFile").click(); });
+    $("#foodNoPhoto").addEventListener("click", function () {
+      Hub.addEntry({ source: "manual" }).then(function () {
+        toast("Записав — постав категорію");
+        return renderFood();
+      }).catch(fail);
+    });
     $("#foodCamera").addEventListener("change", function (event) {
       acceptPhotos(event.target.files, "camera");
       event.target.value = "";
@@ -1547,6 +1579,46 @@
 
   // ── Старт ─────────────────────────────────────────────────────────────
 
+  function runShortcut() {
+    // Довге натискання на іконку застосунку веде сюди з ?do=…
+    var action = new URLSearchParams(location.search).get("do");
+    if (!action) return;
+    history.replaceState(null, "", location.pathname);
+    if (action === "bed") {
+      Hub.markBed().then(function (night) {
+        toast("Ліг о " + hhmm(night.sleepTime));
+        showTab("sleep");
+      }).catch(fail);
+    } else if (action === "food") {
+      showTab("food");
+      try { $("#foodCamera").click(); } catch (e) { /* браузер може не дати без дотику */ }
+    }
+  }
+
+  function bindSwipe() {
+    var startX = 0, startY = 0, tracking = false;
+    var main = document.querySelector("main");
+    main.addEventListener("touchstart", function (event) {
+      // Горизонтальні стрічки й поля гортаються самі — їх не перехоплюємо.
+      tracking = event.touches.length === 1 &&
+        !event.target.closest(".filter-row, .heat, .chart, input, textarea, select");
+      if (!tracking) return;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+    }, { passive: true });
+    main.addEventListener("touchend", function (event) {
+      if (!tracking) return;
+      tracking = false;
+      if (document.querySelector("dialog[open]")) return;
+      var touch = event.changedTouches[0];
+      var dx = touch.clientX - startX;
+      var dy = touch.clientY - startY;
+      if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      var index = TABS.indexOf(state.tab) + (dx < 0 ? 1 : -1);
+      if (index >= 0 && index < TABS.length) showTab(TABS[index]);
+    }, { passive: true });
+  }
+
   function init() {
     $("#todayLabel").textContent = humanDate(Hub.today(), { weekday: "long", day: "numeric", month: "long" });
     renderChips($("#newTaskDays"), state.newTaskDays);
@@ -1559,6 +1631,8 @@
     var saved = "overview";
     try { saved = localStorage.getItem("hub_tab") || "overview"; } catch (e) { /* байдуже */ }
     showTab(TABS.indexOf(saved) !== -1 ? saved : "overview");
+    bindSwipe();
+    runShortcut();
 
     setInterval(function () {
       checkBedtimeNotice();

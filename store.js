@@ -215,7 +215,13 @@ var Hub = (function () {
 
   function logKey(taskId, date) { return taskId + "|" + date; }
 
-  function createTask(name, rule, note) {
+  function normalizeGoal(goal) {
+    // 0 і 1 означають звичайну відмітку; більше — щоденний лічильник.
+    var value = Math.round(Number(goal) || 0);
+    return value > 1 ? Math.min(value, 999) : 0;
+  }
+
+  function createTask(name, rule, note, goal) {
     var clean = String(name || "").trim();
     if (!clean) throw new Error("Назва задачі не може бути порожньою");
     var normalized = normalizeRule(rule);
@@ -225,6 +231,7 @@ var Hub = (function () {
         name: clean,
         rule: normalized,
         note: String(note || "").trim(),
+        goal: normalizeGoal(goal),
         active: true,
         order: order,
         createdAt: stamp(new Date())
@@ -245,6 +252,7 @@ var Hub = (function () {
         }
         if (patch.rule !== undefined) task.rule = normalizeRule(patch.rule);
         if (patch.note !== undefined) task.note = String(patch.note).trim();
+        if (patch.goal !== undefined) task.goal = normalizeGoal(patch.goal);
         if (patch.active !== undefined) task.active = !!patch.active;
         if (patch.order !== undefined) task.order = patch.order;
         return req(store.put(task));
@@ -291,7 +299,40 @@ var Hub = (function () {
       key: logKey(taskId, date),
       taskId: taskId,
       date: date,
-      completed: !!completed
+      completed: !!completed,
+      count: completed ? 1 : 0
+    });
+  }
+
+  function setCount(taskId, date, count) {
+    // Для задачі з ціллю відмітка «виконано» ставиться сама, щойно ціль досягнута.
+    return open().then(function (db) {
+      var transaction = db.transaction(["tasks", "taskLogs"], "readwrite");
+      var tasks = transaction.objectStore("tasks");
+      var logs = transaction.objectStore("taskLogs");
+      return req(tasks.get(taskId)).then(function (task) {
+        var goal = task ? normalizeGoal(task.goal) : 0;
+        var value = Math.max(0, Math.round(Number(count) || 0));
+        if (goal) value = Math.min(value, goal);
+        logs.put({
+          key: logKey(taskId, date),
+          taskId: taskId,
+          date: date,
+          count: value,
+          completed: goal ? value >= goal : value > 0
+        });
+        return done(transaction).then(function () { return { count: value, goal: goal }; });
+      });
+    });
+  }
+
+  function bumpCount(taskId, date, delta) {
+    return open().then(function (db) {
+      var store = db.transaction("taskLogs", "readonly").objectStore("taskLogs");
+      return req(store.get(logKey(taskId, date)));
+    }).then(function (log) {
+      var current = log ? (log.count !== undefined ? log.count : (log.completed ? 1 : 0)) : 0;
+      return setCount(taskId, date, current + delta);
     });
   }
 
@@ -318,23 +359,32 @@ var Hub = (function () {
       var tasks = parts[0].sort(byOrder);
       var doneByTask = {};
       var doneByDate = {};
+      var countByTask = {};
       parts[1].forEach(function (log) {
+        var count = log.count !== undefined ? log.count : (log.completed ? 1 : 0);
+        if (count) {
+          (countByTask[log.taskId] = countByTask[log.taskId] || {})[log.date] = count;
+        }
         if (!log.completed) return;
         (doneByTask[log.taskId] = doneByTask[log.taskId] || []).push(log.date);
         (doneByDate[log.date] = doneByDate[log.date] || []).push(log.taskId);
       });
       Object.keys(doneByTask).forEach(function (id) { doneByTask[id].sort(); });
-      return { tasks: tasks, doneByTask: doneByTask, doneByDate: doneByDate };
+      return { tasks: tasks, doneByTask: doneByTask, doneByDate: doneByDate, countByTask: countByTask };
     });
   }
 
   function decorate(task, ctx, day) {
     var dates = ctx.doneByTask[task.id] || [];
+    var goal = normalizeGoal(task.goal);
+    var count = (ctx.countByTask[task.id] || {})[day] || 0;
     return {
       id: task.id,
       name: task.name,
       rule: task.rule,
       note: task.note || "",
+      goal: goal,
+      count: count,
       active: task.active !== false,
       order: task.order || 0,
       createdAt: task.createdAt,
@@ -369,11 +419,19 @@ var Hub = (function () {
           var dates = ctx.doneByTask[t.id] || [];
           return !dates.some(function (d) { return d < when; });
         });
+      // Часткова готовність: задача з ціллю 3/8 дає у смужку свою третину.
+      var progress = items.length
+        ? items.reduce(function (sum, task) {
+            if (task.goal) return sum + Math.min(1, task.count / task.goal);
+            return sum + (task.completed ? 1 : 0);
+          }, 0) / items.length
+        : 0;
       return {
         date: when,
         tasks: items,
         done: items.filter(function (t) { return t.completed; }).length,
-        total: items.length
+        total: items.length,
+        progress: progress
       };
     });
   }
@@ -978,6 +1036,22 @@ var Hub = (function () {
     });
   }
 
+  function addEntry(options) {
+    // Те саме, що знімок, але без картинки: іноді сфотографувати ніяково.
+    var opts = options || {};
+    var moment = opts.moment || new Date();
+    var tags = Array.isArray(opts.tags) ? opts.tags : [];
+    return storeEntry({
+      ts: stamp(moment),
+      date: isoOf(moment),
+      type: "",
+      tags: tags,
+      tag: mirrorTag(tags),
+      note: String(opts.note || "").trim(),
+      source: opts.source || "manual"
+    }, null);
+  }
+
   function mirrorTag(tags) {
     // Старі копії й Python-хаб знають лише одне поле — лишаємо його осмисленим.
     if (!tags.length) return null;
@@ -1459,6 +1533,7 @@ var Hub = (function () {
           name: name,
           rule: normalizeRule(task.rule || task.recurrence_rule),
           note: task.note || "",
+          goal: normalizeGoal(task.goal),
           active: task.active !== false,
           order: task.order || task.sort_order || 0,
           createdAt: task.createdAt || task.created_at || stamp(new Date())
@@ -1504,6 +1579,7 @@ var Hub = (function () {
             key: logKey(taskId, log.date),
             taskId: taskId,
             date: log.date,
+            count: log.count !== undefined ? log.count : (log.completed ? 1 : 0),
             completed: log.completed !== false && log.completed !== 0
           });
           counts.logs += 1;
@@ -1563,7 +1639,7 @@ var Hub = (function () {
     ONCE: ONCE, DAILY: DAILY,
     normalizeRule: normalizeRule, describeRule: describeRule, isDue: isDue,
     createTask: createTask, updateTask: updateTask, deleteTask: deleteTask,
-    moveTask: moveTask, setDone: setDone,
+    moveTask: moveTask, setDone: setDone, setCount: setCount, bumpCount: bumpCount,
     listTasks: listTasks, dayPlan: dayPlan, activeStreaks: activeStreaks,
     history: history, logByDates: logByDates, taskStats: taskStats,
     perfectStreak: perfectStreak,
@@ -1575,7 +1651,7 @@ var Hub = (function () {
     nights: nights, sleepStats: sleepStats, weeklyAverage: weeklyAverage, advisor: advisor,
     nightDateOf: nightDateOf,
     // їжа
-    addPhoto: addPhoto, updateFood: updateFood, deleteFood: deleteFood,
+    addPhoto: addPhoto, addEntry: addEntry, updateFood: updateFood, deleteFood: deleteFood,
     setTags: setTags, toggleTag: toggleTag, tagsOf: tagsOf,
     getFoodTags: getFoodTags, addFoodTag: addFoodTag,
     updateFoodTag: updateFoodTag, deleteFoodTag: deleteFoodTag,

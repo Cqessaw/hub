@@ -458,3 +458,17 @@ textarea{min-height:72px; resize:vertical; font-size:16px}
 .insight{padding:9px 0; border-bottom:1px solid var(--line); font-size:14px; line-height:1.5}
 .insight:last-child{border-bottom:none}
 .insight b{font-family:"Manrope", system-ui, sans-serif}
+
+/* ── Лічильник у задачі та запис їжі без фото ──────────────────────────── */
+.check.count{
+  width:auto; min-width:52px; padding:0 8px; border-radius:10px;
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:12px; font-weight:600;
+  color:var(--text-soft);
+}
+.task.done .check.count{color:var(--on-accent)}
+
+.shot .placeholder{
+  aspect-ratio:1/1; display:grid; place-items:center; font-size:34px;
+  background:var(--panel-2); border-bottom:1px solid var(--line);
+}
+.shot.no-photo{border-style:dashed}
