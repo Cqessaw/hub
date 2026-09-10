@@ -1267,6 +1267,24 @@
       toast("Готово — тепер відкривай з іконки");
     });
 
+    // Підстраховка: якщо картинка все ж не намалювалась, перечитуємо знімок
+    // зі сховища й даємо їй свіже посилання. Помилки завантаження не спливають,
+    // тому слухаємо на етапі занурення.
+    document.addEventListener("error", function (event) {
+      var img = event.target;
+      if (!img || img.tagName !== "IMG" || !img.dataset.photo || img.dataset.healed) return;
+      img.dataset.healed = "1";
+      var id = Number(img.dataset.photo);
+      var stale = photoUrls.get(id);
+      if (stale) {
+        URL.revokeObjectURL(stale);
+        photoUrls.delete(id);
+      }
+      Hub.getPhoto(id).then(function (blob) {
+        if (blob) img.src = photoUrl({ id: id, blob: blob });
+      }).catch(function () { /* нічим не зарадити */ });
+    }, true);
+
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) refresh();
     });

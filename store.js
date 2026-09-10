@@ -5,7 +5,7 @@ var Hub = (function () {
   "use strict";
 
   var DB_NAME = "hub";
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;
   var dbPromise = null;
 
   var DEFAULT_SETTINGS = {
@@ -80,7 +80,28 @@ var Hub = (function () {
         if (!db.objectStoreNames.contains("settings")) {
           db.createObjectStore("settings", { keyPath: "key" });
         }
-        void event;
+        if (!db.objectStoreNames.contains("photos")) {
+          db.createObjectStore("photos", { keyPath: "id" });
+        }
+        if (event.oldVersion < 2) {
+          // Раніше знімок лежав в одному записі з тегами, і будь-яка зміна тегу
+          // переписувала його. WebKit на такому перезаписі губить блоб — тому
+          // фото переїжджають у власне сховище й далі не чіпаються.
+          var upgrade = request.transaction;
+          var foodStore = upgrade.objectStore("food");
+          var photoStore = upgrade.objectStore("photos");
+          foodStore.openCursor().onsuccess = function (cursorEvent) {
+            var cursor = cursorEvent.target.result;
+            if (!cursor) return;
+            var value = cursor.value;
+            if (value.blob) {
+              photoStore.put({ id: value.id, blob: value.blob, type: value.type || "image/jpeg" });
+              delete value.blob;
+              cursor.update(value);
+            }
+            cursor.continue();
+          };
+        }
       };
       request.onsuccess = function () { resolve(request.result); };
       request.onerror = function () { reject(request.error); };
@@ -899,16 +920,30 @@ var Hub = (function () {
     return shrink(file).then(function (blob) {
       var moment = opts.moment || new Date();
       var tags = Array.isArray(opts.tags) ? opts.tags : (opts.tag ? [opts.tag] : []);
-      return put("food", {
+      return storeEntry({
         ts: stamp(moment),
         date: isoOf(moment),
-        blob: blob,
         type: blob.type || "image/jpeg",
         tags: tags,
         tag: mirrorTag(tags),
         note: String(opts.note || "").trim(),
         source: opts.source || "camera"
-      });
+      }, blob);
+    });
+  }
+
+  function storeEntry(record, blob) {
+    // Опис і саме фото пишемо однією транзакцією, але в різні сховища.
+    return open().then(function (db) {
+      var transaction = db.transaction(["food", "photos"], "readwrite");
+      var foodStore = transaction.objectStore("food");
+      var photoStore = transaction.objectStore("photos");
+      var newId = null;
+      return req(foodStore.put(record)).then(function (id) {
+        newId = id;
+        if (blob) photoStore.put({ id: id, blob: blob, type: blob.type || "image/jpeg" });
+        return done(transaction);
+      }).then(function () { return newId; });
     });
   }
 
@@ -963,12 +998,44 @@ var Hub = (function () {
     });
   }
 
-  function deleteFood(id) { return remove("food", id); }
+  function deleteFood(id) {
+    return open().then(function (db) {
+      var transaction = db.transaction(["food", "photos"], "readwrite");
+      transaction.objectStore("food").delete(id);
+      transaction.objectStore("photos").delete(id);
+      return done(transaction);
+    });
+  }
 
   function foodRows() {
+    // Тільки опис знімків: теги, дати, нотатки. Самі фото — окремо й на вимогу.
     return getAll("food").then(function (rows) {
       return rows.sort(function (a, b) { return a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : b.id - a.id; });
     });
+  }
+
+  function attachPhotos(rows) {
+    if (!rows.length) return Promise.resolve(rows);
+    return open().then(function (db) {
+      var store = db.transaction("photos", "readonly").objectStore("photos");
+      return Promise.all(rows.map(function (row) {
+        if (row.blob) return row;                 // запис ще старого зразка
+        return req(store.get(row.id)).then(function (photo) {
+          if (photo) {
+            row.blob = photo.blob;
+            row.type = photo.type || row.type;
+          }
+          return row;
+        });
+      }));
+    });
+  }
+
+  function getPhoto(id) {
+    return open().then(function (db) {
+      var store = db.transaction("photos", "readonly").objectStore("photos");
+      return req(store.get(id));
+    }).then(function (photo) { return photo ? photo.blob : null; });
   }
 
   function avoidSet(tags) {
@@ -984,9 +1051,10 @@ var Hub = (function () {
       var rows = parts[0];
       var avoid = avoidSet(parts[1]);
       var slice = rows.slice(0, limit || 120);
+      return attachPhotos(slice).then(function (withPhotos) {
       var groups = [];
       var index = {};
-      slice.forEach(function (item) {
+      withPhotos.forEach(function (item) {
         item.tags = tagsOf(item);
         if (index[item.date] === undefined) {
           index[item.date] = groups.length;
@@ -997,11 +1065,14 @@ var Hub = (function () {
         if (hasAvoid(item, avoid)) group.avoid += 1;
       });
       return groups;
+      });
     });
   }
 
   function latestFood(limit) {
-    return foodRows().then(function (rows) { return rows.slice(0, limit || 6); });
+    return foodRows().then(function (rows) {
+      return attachPhotos(rows.slice(0, limit || 6));
+    });
   }
 
   function avoidStreak(end) {
@@ -1137,9 +1208,11 @@ var Hub = (function () {
       };
       var photos = mode === "none"
         ? Promise.resolve(food.map(function () { return null; }))
-        : Promise.all(food.map(function (item) {
-            return item.blob && wanted(item) ? blobToDataUrl(item.blob) : Promise.resolve(null);
-          }));
+        : attachPhotos(food.filter(wanted)).then(function () {
+            return Promise.all(food.map(function (item) {
+              return item.blob && wanted(item) ? blobToDataUrl(item.blob) : Promise.resolve(null);
+            }));
+          });
       return photos.then(function (urls) {
         return {
           app: "hub",
@@ -1239,7 +1312,6 @@ var Hub = (function () {
           var entry = {
             ts: item.ts,
             date: item.date || item.ts.slice(0, 10),
-            blob: item.photo ? dataUrlToBlob(item.photo) : null,
             type: item.type || "image/jpeg",
             tags: tags,
             tag: mirrorTag(tags),
@@ -1247,7 +1319,7 @@ var Hub = (function () {
             source: item.source || "import"
           };
           counts.food += 1;
-          return put("food", entry);
+          return storeEntry(entry, item.photo ? dataUrlToBlob(item.photo) : null);
         });
       }, Promise.resolve());
     }).then(function () { return counts; });
@@ -1255,7 +1327,7 @@ var Hub = (function () {
 
   function wipe() {
     return open().then(function (db) {
-      var names = ["tasks", "taskLogs", "sleep", "food", "settings"];
+      var names = ["tasks", "taskLogs", "sleep", "food", "photos", "settings"];
       var transaction = db.transaction(names, "readwrite");
       names.forEach(function (name) { transaction.objectStore(name).clear(); });
       return done(transaction);
@@ -1300,7 +1372,7 @@ var Hub = (function () {
     setTags: setTags, toggleTag: toggleTag, tagsOf: tagsOf,
     getFoodTags: getFoodTags, addFoodTag: addFoodTag,
     updateFoodTag: updateFoodTag, deleteFoodTag: deleteFoodTag,
-    feed: feed, latestFood: latestFood, avoidStreak: avoidStreak,
+    feed: feed, latestFood: latestFood, avoidStreak: avoidStreak, getPhoto: getPhoto,
     weeklyStats: weeklyStats, thisWeek: thisWeek,
     // спільне
     getSettings: getSettings, saveSettings: saveSettings,
