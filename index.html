@@ -234,7 +234,8 @@
 
     <div class="filter-wrap" id="foodFilterWrap">
       <div class="wrap-row filter-row" id="foodFilter"></div>
-      <span class="chip date-chip" title="Перейти до дати">📅<input type="date" id="foodDatePick" class="date-overlay" aria-label="Перейти до дати"></span>
+      <span class="chip date-chip" id="foodDateChip" title="Перейти до дати"><span id="foodDateLabel">📅</span><input type="date" id="foodDatePick" class="date-overlay" aria-label="Перейти до дати"></span>
+      <button class="chip" id="foodDateReset" title="Показати останні" hidden>✕</button>
     </div>
     <div id="foodFeed"></div>
   </section>

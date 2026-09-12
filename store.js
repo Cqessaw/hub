@@ -1151,10 +1151,12 @@ var Hub = (function () {
     return tagsOf(entry).some(function (id) { return avoid.has(id); });
   }
 
-  function feed(limit) {
+  function feed(limit, upTo) {
     return Promise.all([foodRows(), getFoodTags()]).then(function (parts) {
       var rows = parts[0];
       var avoid = avoidSet(parts[1]);
+      // upTo — показати стрічку починаючи з цієї дати й далі в минуле.
+      if (upTo) rows = rows.filter(function (row) { return row.date <= upTo; });
       var slice = rows.slice(0, limit || 120);
       return attachPhotos(slice).then(function (withPhotos) {
       var groups = [];

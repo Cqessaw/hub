@@ -16,6 +16,7 @@
     foodDays: 30,
     openNight: null,
     foodLimit: 120,
+    foodAnchor: null,
     newTaskDays: new Set([1, 3, 5]),
     editDays: new Set(),
     editing: null,
@@ -612,6 +613,30 @@
     });
   }
 
+  function describeTonight(night) {
+    if (!night || (!night.sleepTime && !night.wakeTime)) return "Сьогодні ще нічого не записано.";
+    if (night.sleepTime && !night.wakeTime) {
+      var minutes = Math.round((Date.now() - new Date(night.sleepTime).getTime()) / 60000);
+      return "Ліг о " + hhmm(night.sleepTime) +
+        (minutes >= 1 ? " · уже " + Hub.fmtMinutes(minutes) : " · щойно");
+    }
+    if (!night.sleepTime && night.wakeTime) {
+      return "Прокинувся о " + hhmm(night.wakeTime) +
+        ". Часу засинання немає — впиши його в рядку ночі, і тривалість порахується.";
+    }
+    return "Ніч " + humanDate(night.date) + ": " + hhmm(night.sleepTime) + " → " +
+      hhmm(night.wakeTime) + ", " + Hub.fmtMinutes(night.duration) + ".";
+  }
+
+  function refreshTonight() {
+    // Поки ніч не закрита, підпис має йти сам — це і є «рахує час».
+    var date = Hub.nightDateOf(new Date());
+    return Hub.nights(2).then(function (rows) {
+      var night = rows.filter(function (row) { return row.date === date; })[0];
+      $("#sleepTonight").textContent = describeTonight(night);
+    }).catch(function () { /* дрібниця */ });
+  }
+
   function renderSleep() {
     var days = state.sleepDays;
     var bucket = BUCKETS[days] || "week";
@@ -621,14 +646,10 @@
       var nights = r[0], stats = r[1], advice = r[2];
       var goal = advice.goalMinutes;
 
-      var tonight = advice.tonight;
-      $("#sleepTonight").textContent = tonight && tonight.sleepTime
-        ? (tonight.wakeTime
-          ? "Ніч " + humanDate(tonight.date) + ": " + hhmm(tonight.sleepTime) + " → " +
-            hhmm(tonight.wakeTime) + ", " + Hub.fmtMinutes(tonight.duration) + "."
-          : "Ліг о " + hhmm(tonight.sleepTime) + " (" + humanDate(tonight.date) +
-            "). Прокинешся — натисни другу кнопку.")
-        : "Сьогодні ще нічого не записано.";
+      var currentDate = Hub.nightDateOf(new Date());
+      $("#sleepTonight").textContent = describeTonight(
+        nights.filter(function (row) { return row.date === currentDate; })[0]
+      );
 
       $("#sleepBanners").innerHTML = advice.messages.map(function (message) {
         return '<div class="banner ' + (advice.deficit ? "warn" : "calm") + '"><span class="ico">' +
@@ -671,7 +692,8 @@
     var days = state.foodDays;
     var bucket = BUCKETS[days] || "week";
     return Promise.all([
-      Hub.feed(state.foodLimit), Hub.avoidStreak(), Hub.foodStats(days), Hub.getFoodTags()
+      Hub.feed(state.foodLimit, state.foodAnchor), Hub.avoidStreak(),
+      Hub.foodStats(days), Hub.getFoodTags()
     ]).then(function (r) {
       var feed = r[0], streak = r[1], stats = r[2], tags = r[3];
       state.foodTags = tags;
@@ -709,14 +731,26 @@
           }).join("")
         : '<span class="muted">Категорій немає.</span>';
 
+      var anchor = state.foodAnchor;
+      $("#foodDateLabel").textContent = anchor
+        ? "📅 " + anchor.slice(8) + "." + anchor.slice(5, 7)
+        : "📅";
+      $("#foodDateReset").hidden = !anchor;
+      $("#foodDatePick").value = anchor || Hub.today();
+
       var filterBox = $("#foodFilter");
-      $("#foodFilterWrap").hidden = !feed.length;
+      $("#foodFilterWrap").hidden = !feed.length && !anchor;
       filterBox.innerHTML = '<button class="chip" data-food-filter="" aria-pressed="' +
         (state.foodFilter === null) + '">Усі</button>' +
         tags.map(function (tag) {
           return '<button class="chip" data-food-filter="' + tag.id + '" aria-pressed="' +
             (state.foodFilter === tag.id) + '">' + tag.emoji + " " + esc(tag.name) + "</button>";
         }).join("");
+
+      // Обраний день показуємо навіть порожнім — інакше здається, що нічого не сталось.
+      if (anchor && !feed.some(function (day) { return day.date === anchor; })) {
+        feed = [{ date: anchor, items: [], avoid: 0 }].concat(feed);
+      }
 
       var shown = state.foodFilter
         ? feed.map(function (day) {
@@ -727,7 +761,7 @@
                 return (item.tags || []).indexOf(state.foodFilter) !== -1;
               })
             };
-          }).filter(function (day) { return day.items.length; })
+          }).filter(function (day) { return day.items.length || day.date === anchor; })
         : feed;
 
       $("#foodFeed").innerHTML = shown.length
@@ -736,9 +770,11 @@
               esc(humanDate(day.date, { day: "numeric", month: "long", weekday: "short" })) +
               ' <span class="muted">' + day.items.length + " " + plural(day.items.length, "фото", "фото", "фото") +
               (day.avoid ? " · зривів " + day.avoid : "") + "</span></h3>" +
-              '<div class="shots">' + day.items.map(function (item) {
-                return shotCard(item, tags);
-              }).join("") + "</div></div>";
+              (day.items.length
+                ? '<div class="shots">' + day.items.map(function (item) {
+                    return shotCard(item, tags);
+                  }).join("") + "</div>"
+                : '<div class="empty">За цей день записів немає.</div>') + "</div>";
           }).join("")
         : '<div class="card"><div class="empty">' + (feed.length
             ? "У цій категорії фото немає."
@@ -749,20 +785,17 @@
   }
 
   function jumpToFoodDate(date) {
-    function scroll() {
-      var el = document.querySelector('.feed-day[data-date="' + date + '"]');
-      if (!el) return false;
+    // Стрічка починається з обраного дня і йде в минуле — як гортання по датах.
+    state.foodAnchor = date || null;
+    state.foodLimit = 120;
+    return renderFood().then(function () {
+      var el = document.querySelector('.feed-day[data-date="' + date + '"]') ||
+        document.querySelector("#foodFeed");
+      if (!el) return;
       // Позицію рахуємо самі: плавне гортання подекуди просто не спрацьовує,
       // а відступ прибирає день з-під липкої шапки.
       var top = el.getBoundingClientRect().top + window.scrollY - 76;
       window.scrollTo(0, Math.max(0, top));
-      return true;
-    }
-    if (scroll()) return Promise.resolve();
-    // Дня ще немає в завантаженій частині стрічки — беремо ширший шматок.
-    state.foodLimit += 400;
-    return renderFood().then(function () {
-      if (!scroll()) toast("За цю дату фото немає");
     }).catch(fail);
   }
 
@@ -1435,6 +1468,12 @@
       if (this.value) jumpToFoodDate(this.value);
     });
 
+    $("#foodDateReset").addEventListener("click", function () {
+      state.foodAnchor = null;
+      state.foodLimit = 120;
+      renderFood().then(function () { window.scrollTo(0, 0); }).catch(fail);
+    });
+
     $("#dayPrev").addEventListener("click", function () {
       state.taskDay = Hub.shift(state.taskDay, -1);
       renderTasks().catch(fail);
@@ -1453,7 +1492,9 @@
     });
     $("#btnWake").addEventListener("click", function () {
       Hub.markWake().then(function (night) {
-        toast(night && night.duration ? "Сон: " + Hub.fmtMinutes(night.duration) : "Записано");
+        if (night && night.duration) toast("Сон: " + Hub.fmtMinutes(night.duration));
+        else if (night && !night.sleepTime) toast("Записав пробудження, але часу засинання немає");
+        else toast("Записано");
         return refresh();
       }).catch(fail);
     });
@@ -1636,7 +1677,9 @@
 
     setInterval(function () {
       checkBedtimeNotice();
-      if (state.tab === "overview" && !document.hidden) renderOverview().catch(function () {});
+      if (document.hidden) return;
+      if (state.tab === "overview") renderOverview().catch(function () {});
+      if (state.tab === "sleep") refreshTonight();
     }, 60000);
     checkBedtimeNotice();
   }
